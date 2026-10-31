@@ -24,9 +24,12 @@ import { AuthSession } from './types/crypto';
 import { useAuth } from './context/AuthContext';
 
 export default function App() {
-  const { session, logout } = useAuth();
+  const { session, logout, authError, clearAuthError, loading } = useAuth();
 
   const [showSplash, setShowSplash] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('cryptora_redirect_pending') === 'true') {
+      return false;
+    }
     return sessionStorage.getItem('cryptora_splash_shown') !== 'true';
   });
 
@@ -84,6 +87,27 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // Automatic dashboard navigation when session becomes active on landing or login routes
+  useEffect(() => {
+    if (session) {
+      setAuthModalOpen(false);
+      const isPublicLanding = currentRoute === 'home' || currentRoute === 'login' || currentRoute === 'register';
+      if (isPublicLanding) {
+        const dest = postAuthRedirect || 'dashboard';
+        navigate(dest);
+        setPostAuthRedirect(null);
+      }
+    }
+  }, [session]);
+
+  // If a mobile redirect authentication error occurs, open AuthModal with the error
+  useEffect(() => {
+    if (authError) {
+      setAuthModalMode('login');
+      setAuthModalOpen(true);
+    }
+  }, [authError]);
+
   const navigate = (route: string) => {
     setCurrentRoute(route);
     window.location.hash = `#/${route}`;
@@ -91,13 +115,15 @@ export default function App() {
   };
 
   const handleOpenAuth = (mode: 'login' | 'register' | 'forgot' = 'login') => {
+    clearAuthError();
     setAuthModalMode(mode);
     setAuthModalOpen(true);
   };
 
   const handleAuthSuccess = (_newSession: AuthSession) => {
     setAuthModalOpen(false);
-    // Explicit requirement: After successful authentication, redirect directly to /dashboard
+    clearAuthError();
+    // After successful authentication, redirect directly to dashboard or target
     if (postAuthRedirect) {
       navigate(postAuthRedirect);
       setPostAuthRedirect(null);
@@ -148,6 +174,15 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-white text-[#111111] selection:bg-[#111111] selection:text-white">
       {/* 3-Second Entrance Splash Screen on First Load */}
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
+
+      {/* Mobile Redirect Processing Overlay */}
+      {loading && typeof window !== 'undefined' && sessionStorage.getItem('cryptora_redirect_pending') === 'true' && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white p-4">
+          <div className="w-10 h-10 border-3 border-[#111111] border-t-transparent rounded-full animate-spin mb-4" />
+          <h2 className="text-sm font-bold text-[#111111]">Authenticating with Google</h2>
+          <p className="text-xs text-[#777777] mt-1 font-mono">Restoring verified secure session...</p>
+        </div>
+      )}
 
       {/* Top Navigation Bar */}
       <Navbar

@@ -17,9 +17,11 @@ import {
   Check,
   RotateCw,
   Send,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { AuthSession } from '../../types/crypto';
+import { firebaseConfig } from '../../services/firebase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -39,6 +41,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     isFirebaseConfigured,
     emailVerificationPending,
     unverifiedUser,
+    authError,
+    clearAuthError,
     signInWithGoogle,
     loginWithEmail,
     registerWithEmail,
@@ -63,7 +67,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [resendingVerification, setResendingVerification] = useState(false);
 
   // Notification states
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(authError);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Sync mode and verification state on open
@@ -74,10 +78,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } else {
         setMode(initialMode);
       }
-      setError(null);
+      setError(authError || null);
       setSuccessMsg(null);
     }
-  }, [isOpen, initialMode, emailVerificationPending]);
+  }, [isOpen, initialMode, emailVerificationPending, authError]);
 
   // If a session becomes active (e.g. from Google login or verified email)
   useEffect(() => {
@@ -269,7 +273,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              clearAuthError();
+              onClose();
+            }}
             className="p-1 text-[#777777] hover:text-[#111111] transition-colors rounded"
             aria-label="Close modal"
           >
@@ -329,9 +336,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* Notifications */}
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-xs text-[#DC2626] rounded flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span className="leading-relaxed">{error}</span>
+            <div className="p-3 bg-red-50 border border-red-200 text-xs text-[#DC2626] rounded space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{error}</span>
+              </div>
+              {error.includes('Authorized domains') && (
+                <div className="pt-1">
+                  <a
+                    href={`https://console.firebase.google.com/project/${firebaseConfig.projectId || 'ace-anvil-5lxdt'}/authentication/settings`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded text-[11px] font-semibold transition-colors"
+                  >
+                    <span>Open Firebase Console Settings</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
             </div>
           )}
 

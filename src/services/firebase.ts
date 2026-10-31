@@ -268,8 +268,9 @@ export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false;
   const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera || '';
   const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-  const isSmallTouch = window.innerWidth <= 768 && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-  return isMobileUA || isSmallTouch;
+  const isIPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  const isSmallTouch = (window.innerWidth <= 768 || window.innerHeight <= 768) && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  return isMobileUA || isIPadOS || isSmallTouch;
 }
 
 /**
@@ -411,7 +412,9 @@ export async function handleGoogleRedirectResult(): Promise<FirebaseUser | null>
  * Uses signInWithRedirect on mobile devices (Android/iOS) and signInWithPopup on desktop
  * with automatic fallback to redirect if popups are blocked.
  */
-export async function signInWithGoogleFirebase(): Promise<FirebaseUser | 'redirect_initiated'> {
+export async function signInWithGoogleFirebase(
+  targetDestination: string = 'dashboard'
+): Promise<FirebaseUser | 'redirect_initiated'> {
   if (!auth || !googleProvider || !isFirebaseConfigured) {
     throw new Error(
       'Firebase Authentication is not configured. Please ensure VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID environment variables are set in your deployment.'
@@ -421,9 +424,17 @@ export async function signInWithGoogleFirebase(): Promise<FirebaseUser | 'redire
   // 1. Mobile devices: Use redirect to prevent popup blockers, blank tabs, and iframe issues on Android/iOS
   if (isMobileDevice()) {
     try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('cryptora_redirect_pending', 'true');
+        sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
+      }
       await signInWithRedirect(auth, googleProvider);
       return 'redirect_initiated';
     } catch (err: any) {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('cryptora_redirect_pending');
+        sessionStorage.removeItem('cryptora_redirect_dest');
+      }
       throw new Error(mapFirebaseAuthError(err));
     }
   }
@@ -445,9 +456,17 @@ export async function signInWithGoogleFirebase(): Promise<FirebaseUser | 'redire
     ) {
       console.warn('Popup was blocked by browser, falling back to signInWithRedirect');
       try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('cryptora_redirect_pending', 'true');
+          sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
+        }
         await signInWithRedirect(auth, googleProvider);
         return 'redirect_initiated';
       } catch (redirectErr: any) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('cryptora_redirect_pending');
+          sessionStorage.removeItem('cryptora_redirect_dest');
+        }
         throw new Error(mapFirebaseAuthError(redirectErr));
       }
     }

@@ -33,7 +33,9 @@ interface AuthContextType {
   isFirebaseConfigured: boolean;
   emailVerificationPending: boolean;
   unverifiedUser: FirebaseUser | null;
-  signInWithGoogle: () => Promise<'redirect_initiated' | 'success'>;
+  authError: string | null;
+  clearAuthError: () => void;
+  signInWithGoogle: (targetDestination?: string) => Promise<'redirect_initiated' | 'success'>;
   loginWithEmail: (email: string, pass: string) => Promise<{ isVerified: boolean }>;
   registerWithEmail: (name: string, email: string, pass: string) => Promise<{ emailVerificationSent: boolean }>;
   resendVerification: () => Promise<void>;
@@ -52,13 +54,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState<boolean>(true);
   const [emailVerificationPending, setEmailVerificationPending] = useState<boolean>(false);
   const [unverifiedUser, setUnverifiedUser] = useState<FirebaseUser | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // 1. Check for Mobile Google Redirect result on initialization
+  const clearAuthError = () => setAuthError(null);
+
+  // Unified Firebase Authentication Lifecycle & Mobile Redirect Processor
   useEffect(() => {
     let mounted = true;
+    let unsubAuth: (() => void) | undefined;
 
-    async function checkRedirect() {
-      if (!isFirebaseConfigured || !auth) return;
+    async function initializeAuth() {
+      if (!isFirebaseConfigured || !auth) {
+        if (mounted) setLoading(false);
+        return;
+      }
+
+      const isRedirectExpected =
+        typeof window !== 'undefined' &&
+        sessionStorage.getItem('cryptora_redirect_pending') === 'true';
+
+      // 1. Process Mobile Google OAuth Redirect Result first
       try {
         const redirectedUser = await handleGoogleRedirectResult();
         if (redirectedUser && mounted) {
@@ -74,27 +89,39 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             token,
             expiresAt: Date.now() + 24 * 60 * 60 * 1000,
           };
+
           saveSession(newSession);
           setSession(newSession);
           setFirebaseUser(redirectedUser);
+          setEmailVerificationPending(false);
+          setUnverifiedUser(null);
+          setAuthError(null);
+
+          // Retrieve destination (default to 'dashboard')
+          const destination = sessionStorage.getItem('cryptora_redirect_dest') || 'dashboard';
+          sessionStorage.removeItem('cryptora_redirect_pending');
+          sessionStorage.removeItem('cryptora_redirect_dest');
+
+          // Direct hash route navigation to target workspace
+          window.location.hash = `#/${destination}`;
+        } else if (isRedirectExpected) {
+          // Redirect was expected but returned null (e.g. cancelled by user)
+          sessionStorage.removeItem('cryptora_redirect_pending');
+          sessionStorage.removeItem('cryptora_redirect_dest');
         }
-      } catch (e) {
-        console.warn('Error processing Google redirect result:', e);
+      } catch (redirectErr: any) {
+        console.warn('Google redirect resolution error:', redirectErr);
+        sessionStorage.removeItem('cryptora_redirect_pending');
+        sessionStorage.removeItem('cryptora_redirect_dest');
+        if (mounted) {
+          setAuthError(redirectErr.message || 'Google Authentication failed. Please try again.');
+        }
       }
-    }
 
-    checkRedirect();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // 2. Subscribe to Firebase Auth State changes
-  useEffect(() => {
-    let unsubAuth: (() => void) | undefined;
-
-    if (auth && isFirebaseConfigured) {
+      // 2. Subscribe to Firebase Auth State Changes
       unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+        if (!mounted) return;
+
         if (fbUser) {
           setFirebaseUser(fbUser);
           const isGoogle = fbUser.providerData.some((p) => p.providerId === 'google.com');
@@ -109,7 +136,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             return;
           }
 
-          // Verified User (Google or Email verified)
+          // Verified User (Google OAuth or Verified Email)
           try {
             const token = await fbUser.getIdToken();
             const providerName = isGoogle ? 'Google' : 'Firebase Email';
@@ -131,30 +158,39 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setSession(newSession);
             saveSession(newSession);
           } catch (e) {
-            console.warn('Could not establish user session:', e);
+            console.warn('Could not establish user session from auth state:', e);
           }
         } else {
-          setFirebaseUser(null);
-          setSession(null);
-          logoutUser();
-          setEmailVerificationPending(false);
-          setUnverifiedUser(null);
+          // Prevent session clearing if we are in the middle of a redirect resolution
+          const isStillRedirecting =
+            typeof window !== 'undefined' &&
+            sessionStorage.getItem('cryptora_redirect_pending') === 'true';
+
+          if (!isStillRedirecting) {
+            setFirebaseUser(null);
+            setSession(null);
+            logoutUser();
+            setEmailVerificationPending(false);
+            setUnverifiedUser(null);
+          }
         }
+
         setLoading(false);
       });
-    } else {
-      // Firebase not yet configured
-      setLoading(false);
     }
 
+    initializeAuth();
+
     return () => {
+      mounted = false;
       if (unsubAuth) unsubAuth();
     };
   }, []);
 
   // Actions
-  const signInWithGoogle = async (): Promise<'redirect_initiated' | 'success'> => {
-    const result = await signInWithGoogleFirebase();
+  const signInWithGoogle = async (targetDestination: string = 'dashboard'): Promise<'redirect_initiated' | 'success'> => {
+    setAuthError(null);
+    const result = await signInWithGoogleFirebase(targetDestination);
     if (result === 'redirect_initiated') {
       return 'redirect_initiated';
     }
@@ -176,10 +212,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     saveSession(newSession);
     setEmailVerificationPending(false);
     setUnverifiedUser(null);
+    setAuthError(null);
     return 'success';
   };
 
   const loginWithEmail = async (email: string, pass: string): Promise<{ isVerified: boolean }> => {
+    setAuthError(null);
     const { user, isVerified } = await loginWithEmailFirebase(email, pass);
     setFirebaseUser(user);
 
@@ -207,6 +245,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUnverifiedUser(null);
     setSession(newSession);
     saveSession(newSession);
+    setAuthError(null);
     return { isVerified: true };
   };
 
@@ -215,6 +254,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     email: string,
     pass: string
   ): Promise<{ emailVerificationSent: boolean }> => {
+    setAuthError(null);
     const { user, emailVerificationSent } = await registerWithEmailFirebase(name, email, pass);
     setFirebaseUser(user);
     // User is created but must verify email before access to protected features
@@ -263,6 +303,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const resetPassword = async (email: string): Promise<void> => {
+    setAuthError(null);
     await resetPasswordFirebase(email);
   };
 
@@ -273,6 +314,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setSession(null);
     setEmailVerificationPending(false);
     setUnverifiedUser(null);
+    setAuthError(null);
   };
 
   const updateSessionName = async (newName: string): Promise<void> => {
@@ -311,6 +353,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isFirebaseConfigured,
         emailVerificationPending,
         unverifiedUser,
+        authError,
+        clearAuthError,
         signInWithGoogle,
         loginWithEmail,
         registerWithEmail,
