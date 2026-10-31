@@ -15,7 +15,7 @@ interface NavbarProps {
   currentRoute: string;
   onNavigate: (route: string) => void;
   session: AuthSession | null;
-  onOpenAuth: (mode?: 'login' | 'register') => void;
+  onOpenAuth: (mode?: 'login' | 'register' | 'connect') => void;
   onLogout: () => void;
 }
 

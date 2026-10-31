@@ -2,9 +2,15 @@
  * CRYPTORA Firebase Integration Service
  * Configures Firebase Authentication & Cloud Firestore with seamless environment variable fallback
  * and dynamic in-app configuration support.
+ *
+ * Strict Security Rules:
+ * - Rejects Google Cloud Service Account Private Keys.
+ * - Validates API Key, Project ID, and required Web App fields.
+ * - Prevents duplicate Firebase app initialization.
+ * - Zero-knowledge client isolation: No passwords, encryption keys, or plaintexts are ever sent to Firestore.
  */
 
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, deleteApp, FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -16,6 +22,8 @@ import {
   updateProfile,
   User as FirebaseUser,
   Auth,
+  browserLocalPersistence,
+  setPersistence,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -32,6 +40,12 @@ export interface FirebaseConfigValues {
   storageBucket?: string;
   messagingSenderId?: string;
   appId?: string;
+}
+
+export interface ConfigValidationResult {
+  valid: boolean;
+  error?: string;
+  config?: FirebaseConfigValues;
 }
 
 const STORAGE_KEY = 'cryptora_firebase_config_v1';
@@ -56,32 +70,104 @@ function notifyListeners() {
 }
 
 /**
+ * Validates a Firebase configuration object against frontend security standards
+ */
+export function validateFirebaseConfig(config: Partial<FirebaseConfigValues>): ConfigValidationResult {
+  if (!config) {
+    return { valid: false, error: 'Configuration object is missing.' };
+  }
+
+  const apiKey = (config.apiKey || '').trim();
+  const projectId = (config.projectId || '').trim();
+  const authDomain = (config.authDomain || '').trim();
+  const appId = (config.appId || '').trim();
+
+  // 1. Critical Security Check: Detect accidental Service Account / Private Key input
+  const stringified = JSON.stringify(config).toLowerCase();
+  if (
+    stringified.includes('private_key') ||
+    stringified.includes('service_account') ||
+    stringified.includes('client_email') ||
+    stringified.includes('token_uri')
+  ) {
+    return {
+      valid: false,
+      error:
+        'SECURITY ALERT: You entered a Google Cloud Service Account Private Key! Service account keys must NEVER be exposed in client-side web applications. Please provide your Web App configuration from Firebase Console > Project Settings > General > Your apps.',
+    };
+  }
+
+  // 2. Validate API Key
+  if (!apiKey) {
+    return { valid: false, error: 'Firebase Web API Key is required.' };
+  }
+  if (apiKey === 'YOUR_FIREBASE_API_KEY' || apiKey === 'AIzaSy...' || apiKey.includes('YOUR_')) {
+    return { valid: false, error: 'Please replace placeholder API Key with your real Firebase Web API Key.' };
+  }
+  if (apiKey.length < 15) {
+    return { valid: false, error: 'Invalid Firebase Web API Key format (too short).' };
+  }
+
+  // 3. Validate Project ID
+  if (!projectId) {
+    return { valid: false, error: 'Firebase Project ID is required.' };
+  }
+  if (projectId === 'your-project-id' || projectId.includes('YOUR_') || projectId.includes(' ')) {
+    return { valid: false, error: 'Please enter a valid Firebase Project ID (no spaces or placeholders).' };
+  }
+
+  // 4. Resolve authDomain if missing
+  const resolvedAuthDomain = authDomain || `${projectId}.firebaseapp.com`;
+
+  return {
+    valid: true,
+    config: {
+      apiKey,
+      authDomain: resolvedAuthDomain,
+      projectId,
+      storageBucket: (config.storageBucket || `${projectId}.firebasestorage.app`).trim(),
+      messagingSenderId: (config.messagingSenderId || '').trim(),
+      appId,
+    },
+  };
+}
+
+/**
  * Parses user-pasted Firebase config strings (JSON or JavaScript snippet)
  */
-export function parseFirebaseConfig(raw: string): FirebaseConfigValues | null {
-  if (!raw || typeof raw !== 'string') return null;
+export function parseFirebaseConfig(raw: string): ConfigValidationResult {
+  if (!raw || typeof raw !== 'string') {
+    return { valid: false, error: 'Please enter or paste your Firebase configuration.' };
+  }
+
   const trimmed = raw.trim();
 
-  // 1. Try pure JSON parse
+  // Guard against service account private key in raw text
+  if (
+    trimmed.includes('private_key') ||
+    trimmed.includes('service_account') ||
+    trimmed.includes('BEGIN PRIVATE KEY') ||
+    trimmed.includes('client_email')
+  ) {
+    return {
+      valid: false,
+      error:
+        'SECURITY ALERT: You pasted a Google Cloud Service Account Private Key! Service account keys must NEVER be exposed in client-side applications. Please use your Web App Client Configuration from Firebase Console > Project Settings > General > Your apps.',
+    };
+  }
+
+  // 1. Try JSON parse
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object' && parsed.apiKey && parsed.projectId) {
-      return {
-        apiKey: String(parsed.apiKey).trim(),
-        authDomain: String(parsed.authDomain || '').trim(),
-        projectId: String(parsed.projectId).trim(),
-        storageBucket: String(parsed.storageBucket || '').trim(),
-        messagingSenderId: String(parsed.messagingSenderId || '').trim(),
-        appId: String(parsed.appId || '').trim(),
-      };
+    if (parsed && typeof parsed === 'object') {
+      return validateFirebaseConfig(parsed);
     }
   } catch {
     // Continue to regex extractor
   }
 
-  // 2. Extract via regex for JS snippet or key-value pairs
+  // 2. Extract via regex for JS snippet: const firebaseConfig = { ... }
   const extract = (key: string): string => {
-    // Matches "key": "value", key: 'value', key: "value"
     const regex = new RegExp(`(?:['"]?${key}['"]?\\s*:\\s*['"]([^'"]+)['"])`, 'i');
     const match = trimmed.match(regex);
     return match ? match[1].trim() : '';
@@ -94,18 +180,22 @@ export function parseFirebaseConfig(raw: string): FirebaseConfigValues | null {
   const messagingSenderId = extract('messagingSenderId');
   const appId = extract('appId');
 
-  if (apiKey && projectId) {
+  if (!apiKey && !projectId) {
     return {
-      apiKey,
-      authDomain: authDomain || `${projectId}.firebaseapp.com`,
-      projectId,
-      storageBucket,
-      messagingSenderId,
-      appId,
+      valid: false,
+      error:
+        'Could not find valid apiKey and projectId in snippet. Paste standard Firebase Web App configuration object.',
     };
   }
 
-  return null;
+  return validateFirebaseConfig({
+    apiKey,
+    projectId,
+    authDomain,
+    storageBucket,
+    messagingSenderId,
+    appId,
+  });
 }
 
 /**
@@ -116,8 +206,9 @@ export function getStoredFirebaseConfig(): FirebaseConfigValues | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.apiKey && parsed.projectId) {
-      return parsed;
+    const validated = validateFirebaseConfig(parsed);
+    if (validated.valid && validated.config) {
+      return validated.config;
     }
   } catch {
     // ignore
@@ -130,16 +221,16 @@ export function getStoredFirebaseConfig(): FirebaseConfigValues | null {
  */
 export function getActiveFirebaseConfig(): FirebaseConfigValues {
   const stored = getStoredFirebaseConfig();
-  if (stored && stored.apiKey && stored.projectId) {
+  if (stored) {
     return stored;
   }
   return {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+    apiKey: (import.meta.env.VITE_FIREBASE_API_KEY || '').trim(),
+    authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim(),
+    projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim(),
+    storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim(),
+    messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim(),
+    appId: (import.meta.env.VITE_FIREBASE_APP_ID || '').trim(),
   };
 }
 
@@ -150,22 +241,22 @@ export let googleProvider: GoogleAuthProvider | null = null;
 export let isFirebaseConfigured = false;
 
 /**
- * Initializes or re-initializes Firebase instances
+ * Initializes or cleanly re-initializes Firebase instances
  */
 export function initializeFirebaseInstance(): boolean {
   const cfg = getActiveFirebaseConfig();
-  const valid = Boolean(
-    cfg.apiKey &&
-    cfg.apiKey !== 'YOUR_FIREBASE_API_KEY' &&
-    cfg.apiKey !== 'AIzaSy...' &&
-    cfg.projectId &&
-    cfg.projectId !== 'your-project-id'
-  );
+  const validation = validateFirebaseConfig(cfg);
 
-  if (valid) {
+  if (validation.valid && validation.config) {
     try {
-      app = getApps().length > 0 ? getApp() : initializeApp(cfg);
+      if (getApps().length > 0) {
+        app = getApp();
+      } else {
+        app = initializeApp(validation.config);
+      }
       auth = getAuth(app);
+      // Ensure persistence
+      setPersistence(auth, browserLocalPersistence).catch(() => {});
       db = getFirestore(app);
       googleProvider = new GoogleAuthProvider();
       googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -186,26 +277,60 @@ export function initializeFirebaseInstance(): boolean {
 initializeFirebaseInstance();
 
 /**
- * Save configuration to localStorage and re-initialize Firebase
+ * Save configuration to localStorage, cleanly dispose old app if needed, and re-initialize
  */
-export function saveStoredFirebaseConfig(config: FirebaseConfigValues): boolean {
+export async function saveStoredFirebaseConfig(config: FirebaseConfigValues): Promise<boolean> {
+  const validation = validateFirebaseConfig(config);
+  if (!validation.valid || !validation.config) {
+    throw new Error(validation.error || 'Invalid configuration');
+  }
+
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    const ok = initializeFirebaseInstance();
+    // If an app was previously initialized, delete it to prevent duplicate app errors
+    if (app && getApps().length > 0) {
+      try {
+        await deleteApp(app);
+      } catch (e) {
+        console.warn('Notice disposing previous app:', e);
+      }
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(validation.config));
+    app = initializeApp(validation.config);
+    auth = getAuth(app);
+    await setPersistence(auth, browserLocalPersistence).catch(() => {});
+    db = getFirestore(app);
+    googleProvider = new GoogleAuthProvider();
+    googleProvider.setCustomParameters({ prompt: 'select_account' });
+    isFirebaseConfigured = true;
+
     notifyListeners();
-    return ok;
-  } catch (e) {
-    console.error('Failed to save Firebase config:', e);
-    return false;
+    return true;
+  } catch (e: any) {
+    console.error('Failed to save & initialize Firebase config:', e);
+    isFirebaseConfigured = false;
+    throw new Error(e.message || 'Firebase initialization failed with provided credentials.');
   }
 }
 
 /**
  * Clear configuration from localStorage and restore default
  */
-export function clearStoredFirebaseConfig(): void {
+export async function clearStoredFirebaseConfig(): Promise<void> {
   try {
+    if (app && getApps().length > 0) {
+      try {
+        await deleteApp(app);
+      } catch {
+        // ignore
+      }
+    }
     localStorage.removeItem(STORAGE_KEY);
+    app = null;
+    auth = null;
+    db = null;
+    googleProvider = null;
+    isFirebaseConfigured = false;
     initializeFirebaseInstance();
     notifyListeners();
   } catch (e) {
@@ -214,7 +339,10 @@ export function clearStoredFirebaseConfig(): void {
 }
 
 export function checkFirebaseConfigured(): boolean {
-  return isFirebaseConfigured;
+  if (!isFirebaseConfigured) {
+    return initializeFirebaseInstance();
+  }
+  return true;
 }
 
 export interface UserProfileData {
@@ -223,44 +351,111 @@ export interface UserProfileData {
   email: string;
   photoURL?: string;
   createdAt: number;
+  lastLoginAt: number;
   authProvider: string;
+}
+
+/**
+ * User-friendly mapping for Firebase error codes
+ */
+export function mapFirebaseAuthError(error: any): string {
+  if (!error) return 'Authentication failed. Please try again.';
+  const code = error.code || '';
+  const message = error.message || '';
+
+  switch (code) {
+    case 'auth/email-already-in-use':
+      return 'An account with this email address already exists. Please sign in or use password reset.';
+    case 'auth/invalid-email':
+      return 'The email address format is invalid. Please enter a valid email address.';
+    case 'auth/weak-password':
+      return 'Password is too weak. Please use at least 8 characters with letters, numbers, and symbols.';
+    case 'auth/user-not-found':
+      return 'No CRYPTORA account was found with this email. Please check your spelling or register.';
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Incorrect email or password. Please verify your credentials or reset your password.';
+    case 'auth/popup-closed-by-user':
+      return 'The Google Sign-In popup was closed before completing authentication.';
+    case 'auth/popup-blocked':
+      return 'The authentication popup was blocked by your browser. Please allow popups for this site.';
+    case 'auth/unauthorized-domain':
+      return `This domain (${typeof window !== 'undefined' ? window.location.hostname : 'current domain'}) is not authorized in Firebase Console. Go to Firebase Console > Authentication > Settings > Authorized domains to add it.`;
+    case 'auth/network-request-failed':
+      return 'Network communication error. Please check your internet connection.';
+    case 'auth/too-many-requests':
+      return 'Too many failed login attempts. Access temporarily locked for security. Please try again later or reset password.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled in your Firebase Console. Please enable Email/Password or Google under Authentication > Sign-in method.';
+    case 'auth/user-disabled':
+      return 'This user account has been disabled by an administrator.';
+    case 'auth/requires-recent-login':
+      return 'This operation is sensitive and requires recent authentication. Please log in again before retrying.';
+    default:
+      if (message.includes('API key not valid')) {
+        return 'The Firebase API Key provided is invalid. Please verify your Firebase project settings.';
+      }
+      return message || 'Authentication failed. Please verify credentials.';
+  }
+}
+
+/**
+ * Sync user profile to Firestore safely (Zero-Knowledge: Never stores passwords or cryptographic keys)
+ */
+export async function syncUserProfileToFirestore(
+  user: FirebaseUser,
+  displayName?: string,
+  authProvider: string = 'google.com'
+): Promise<void> {
+  if (!db || !user) return;
+  try {
+    const userRef = doc(db, 'users', user.uid);
+    const existing = await getDoc(userRef);
+    const now = Date.now();
+
+    if (!existing.exists()) {
+      await setDoc(userRef, {
+        uid: user.uid,
+        displayName: displayName || user.displayName || 'Cryptora User',
+        email: user.email || '',
+        photoURL: user.photoURL || '',
+        createdAt: now,
+        lastLoginAt: now,
+        authProvider,
+      });
+    } else {
+      await setDoc(
+        userRef,
+        {
+          displayName: displayName || user.displayName || existing.data()?.displayName || 'Cryptora User',
+          lastLoginAt: now,
+        },
+        { merge: true }
+      );
+    }
+  } catch (e) {
+    console.warn('Could not sync user profile to Firestore:', e);
+  }
 }
 
 /**
  * Sign In with Google via Firebase Popup
  */
 export async function signInWithGoogleFirebase(): Promise<FirebaseUser> {
-  // Ensure instance is initialized
   initializeFirebaseInstance();
 
   if (!auth || !googleProvider) {
     throw new Error('Firebase Authentication is not configured yet. Connect your Firebase credentials to enable Google Sign-In.');
   }
 
-  const result = await signInWithPopup(auth, googleProvider);
-  const user = result.user;
-
-  // Sync profile in Firestore
-  if (db && user) {
-    try {
-      const userRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userRef);
-      if (!userDoc.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          displayName: user.displayName || 'Cryptora User',
-          email: user.email || '',
-          photoURL: user.photoURL || '',
-          createdAt: Date.now(),
-          authProvider: 'google.com',
-        });
-      }
-    } catch (e) {
-      console.warn('Could not sync user profile to Firestore:', e);
-    }
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
+    await syncUserProfileToFirestore(user, user.displayName || undefined, 'google.com');
+    return user;
+  } catch (err: any) {
+    throw new Error(mapFirebaseAuthError(err));
   }
-
-  return user;
 }
 
 /**
@@ -276,24 +471,16 @@ export async function registerWithEmailFirebase(
     throw new Error('Firebase Authentication is not configured in this environment.');
   }
 
-  const cred = await createUserWithEmailAndPassword(auth, email, pass);
-  if (cred.user) {
-    await updateProfile(cred.user, { displayName: name });
-    if (db) {
-      try {
-        await setDoc(doc(db, 'users', cred.user.uid), {
-          uid: cred.user.uid,
-          displayName: name,
-          email,
-          createdAt: Date.now(),
-          authProvider: 'password',
-        });
-      } catch (e) {
-        console.warn('Could not write user profile to Firestore:', e);
-      }
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    if (cred.user) {
+      await updateProfile(cred.user, { displayName: name });
+      await syncUserProfileToFirestore(cred.user, name, 'password');
     }
+    return cred.user;
+  } catch (err: any) {
+    throw new Error(mapFirebaseAuthError(err));
   }
-  return cred.user;
 }
 
 /**
@@ -304,8 +491,16 @@ export async function loginWithEmailFirebase(email: string, pass: string): Promi
   if (!auth) {
     throw new Error('Firebase Authentication is not configured in this environment.');
   }
-  const cred = await signInWithEmailAndPassword(auth, email, pass);
-  return cred.user;
+
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, pass);
+    if (cred.user) {
+      await syncUserProfileToFirestore(cred.user, cred.user.displayName || undefined, 'password');
+    }
+    return cred.user;
+  } catch (err: any) {
+    throw new Error(mapFirebaseAuthError(err));
+  }
 }
 
 /**
@@ -316,7 +511,12 @@ export async function resetPasswordFirebase(email: string): Promise<void> {
   if (!auth) {
     throw new Error('Firebase Authentication is not configured in this environment.');
   }
-  await sendPasswordResetEmail(auth, email);
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+  } catch (err: any) {
+    throw new Error(mapFirebaseAuthError(err));
+  }
 }
 
 /**

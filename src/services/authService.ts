@@ -183,6 +183,13 @@ function createSession(user: UserAccount): AuthSession {
 }
 
 /**
+ * Save an active session
+ */
+export function saveSession(session: AuthSession): void {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+/**
  * Get current active session
  */
 export function getCurrentSession(): AuthSession | null {
