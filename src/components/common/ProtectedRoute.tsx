@@ -11,7 +11,7 @@ import { AuthSession } from '../../types/crypto';
 interface ProtectedRouteProps {
   session: AuthSession | null;
   currentRoute: string;
-  onOpenAuth: (mode?: 'login' | 'register' | 'connect') => void;
+  onOpenAuth: (mode?: 'login' | 'register') => void;
   onNavigateHome: () => void;
   children: React.ReactNode;
 }

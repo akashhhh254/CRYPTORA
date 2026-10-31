@@ -1,8 +1,8 @@
 /**
  * CRYPTORA - Full-Stack Cybersecurity & Cryptography Platform
  * Main Application Shell & Master Routing Controller
- * Features 3-second splash screen, strict protected route isolation,
- * unified Firebase Authentication, and zero-knowledge client cryptographic engines.
+ * Features 3-second entrance splash screen, strict protected route isolation,
+ * verified Firebase Authentication sessions, and zero-knowledge client cryptographic engines.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -22,10 +22,9 @@ import { AuthModal } from './components/auth/AuthModal';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { AuthSession } from './types/crypto';
 import { useAuth } from './context/AuthContext';
-import { initializeDefaultAccounts } from './services/authService';
 
 export default function App() {
-  const { session, logout, isFirebaseConfigured, updateSessionName } = useAuth();
+  const { session, logout } = useAuth();
 
   const [showSplash, setShowSplash] = useState<boolean>(() => {
     return sessionStorage.getItem('cryptora_splash_shown') !== 'true';
@@ -33,13 +32,8 @@ export default function App() {
 
   const [currentRoute, setCurrentRoute] = useState<string>('home');
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'forgot' | 'connect'>('login');
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [postAuthRedirect, setPostAuthRedirect] = useState<string | null>(null);
-
-  // Initialize pre-seeded local auditor account
-  useEffect(() => {
-    initializeDefaultAccounts();
-  }, []);
 
   // Sync route from URL Hash on first load & listen for hash changes
   useEffect(() => {
@@ -58,7 +52,6 @@ export default function App() {
           'privacy',
           'login',
           'register',
-          'connect',
           'dashboard',
           'encrypt',
           'decrypt',
@@ -71,7 +64,7 @@ export default function App() {
         ];
 
         if (validRoutes.includes(hash)) {
-          if (hash === 'login' || hash === 'register' || hash === 'connect') {
+          if (hash === 'login' || hash === 'register') {
             setAuthModalMode(hash as any);
             setAuthModalOpen(true);
             setCurrentRoute('home');
@@ -97,7 +90,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleOpenAuth = (mode: 'login' | 'register' | 'forgot' | 'connect' = 'login') => {
+  const handleOpenAuth = (mode: 'login' | 'register' | 'forgot' = 'login') => {
     setAuthModalMode(mode);
     setAuthModalOpen(true);
   };
@@ -173,7 +166,7 @@ export default function App() {
             currentRoute={currentRoute}
             onOpenAuth={(mode) => {
               setPostAuthRedirect(currentRoute);
-              handleOpenAuth(mode || 'login');
+              handleOpenAuth((mode as any) || 'login');
             }}
             onNavigateHome={() => navigate('home')}
           >
@@ -302,7 +295,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Unified Authentication & Firebase Setup Modal */}
+      {/* Unified Genuine Authentication Modal */}
       <AuthModal
         isOpen={authModalOpen}
         initialMode={authModalMode}
