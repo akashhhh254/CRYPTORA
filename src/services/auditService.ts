@@ -6,7 +6,7 @@
  */
 
 import { AuditLogItem } from '../types/crypto';
-import { db } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 const AUDIT_STORAGE_KEY = 'cryptora_audit_logs_v1';
@@ -36,23 +36,22 @@ export function logAuditEvent(item: Omit<AuditLogItem, 'id' | 'timestamp'>, user
 
   // Sync to Firestore if user is authenticated and db is available
   if (db && userId) {
-    try {
-      const historyDocRef = doc(db, 'users', userId, 'history', newItem.id);
-      setDoc(historyDocRef, {
-        operationId: newItem.id,
-        operationType: newItem.type,
-        category: newItem.category,
-        algorithm: newItem.algorithm,
-        fileName: newItem.fileName,
-        fileSize: newItem.fileSize,
-        mimeType: newItem.mimeType,
-        status: newItem.status,
-        createdAt: newItem.timestamp,
-        details: newItem.details || '',
-      }).catch((e) => console.warn('Could not write history to Firestore:', e));
-    } catch {
-      // Non-blocking fallback
-    }
+    const docPath = `users/${userId}/history/${newItem.id}`;
+    setDoc(doc(db, 'users', userId, 'history', newItem.id), {
+      operationId: newItem.id,
+      operationType: newItem.type,
+      category: newItem.category,
+      algorithm: newItem.algorithm,
+      fileName: newItem.fileName,
+      fileSize: newItem.fileSize,
+      mimeType: newItem.mimeType,
+      status: newItem.status,
+      createdAt: newItem.timestamp,
+      details: newItem.details || '',
+    }).catch((e) => {
+      console.warn('Could not write history to Firestore:', e);
+      handleFirestoreError(e, OperationType.WRITE, docPath);
+    });
   }
 
   return newItem;
@@ -64,12 +63,11 @@ export function deleteAuditLog(id: string, userId?: string): void {
   localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updated));
 
   if (db && userId) {
-    try {
-      const historyDocRef = doc(db, 'users', userId, 'history', id);
-      deleteDoc(historyDocRef).catch(() => {});
-    } catch {
-      // Non-blocking
-    }
+    const docPath = `users/${userId}/history/${id}`;
+    deleteDoc(doc(db, 'users', userId, 'history', id)).catch((e) => {
+      console.warn('Could not delete history from Firestore:', e);
+      handleFirestoreError(e, OperationType.DELETE, docPath);
+    });
   }
 }
 

@@ -1,25 +1,93 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // User profile document: only the authenticated user can read or modify their profile
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      
-      // User settings subcollection
-      match /settings/{settingId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
 
-      // User history subcollection: only the user can read, create, or delete their history
-      match /history/{operationId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-    }
-    
-    // Default deny all other paths
+    // Global Safety Net (default deny)
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User profile validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email'])
+        && data.uid is string && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 255
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000))
+        && (!('provider' in data) || (data.provider is string && data.provider.size() <= 64))
+        && (!('emailVerified' in data) || data.emailVerified is bool)
+        && (!('createdAt' in data) || data.createdAt is number)
+        && (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    // History item validation
+    function isValidHistoryItem(data) {
+      return data.keys().hasAll(['operationId', 'operationType', 'category', 'algorithm', 'fileName', 'status', 'createdAt'])
+        && data.operationId is string && isValidId(data.operationId)
+        && data.operationType in ['Encrypt', 'Decrypt', 'KeyGen', 'Hash']
+        && data.category in ['Image', 'File', 'Text', 'Key']
+        && data.algorithm is string && data.algorithm.size() <= 64
+        && data.fileName is string && data.fileName.size() <= 256
+        && data.status in ['Success', 'Error']
+        && data.createdAt is number
+        && (!('fileSize' in data) || data.fileSize is number)
+        && (!('mimeType' in data) || (data.mimeType is string && data.mimeType.size() <= 128))
+        && (!('details' in data) || (data.details is string && data.details.size() <= 2048));
+    }
+
+    // Settings item validation
+    function isValidSetting(data) {
+      return data.keys().hasAll(['key', 'updatedAt'])
+        && data.key is string && data.key.size() <= 64
+        && data.updatedAt is number
+        && (!('value' in data) || (data.value is string && data.value.size() <= 4096));
+    }
+
+    // User document and subcollections
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && incoming().uid == existing().uid;
+      allow delete: if isOwner(userId);
+
+      // Audit History subcollection
+      match /history/{operationId} {
+        allow get: if isOwner(userId) && isValidId(operationId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(operationId) && isValidHistoryItem(incoming());
+        allow update: if isOwner(userId) && isValidId(operationId) && isValidHistoryItem(incoming()) && incoming().operationId == existing().operationId;
+        allow delete: if isOwner(userId) && isValidId(operationId);
+      }
+
+      // Settings subcollection
+      match /settings/{settingId} {
+        allow get: if isOwner(userId) && isValidId(settingId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(settingId) && isValidSetting(incoming());
+        allow update: if isOwner(userId) && isValidId(settingId) && isValidSetting(incoming()) && incoming().key == existing().key;
+        allow delete: if isOwner(userId) && isValidId(settingId);
+      }
     }
   }
 }

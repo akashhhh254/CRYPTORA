@@ -36,17 +36,46 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocFromServer,
   Firestore,
 } from 'firebase/firestore';
+import appletConfig from '../../firebase-applet-config.json';
 
-// Environment configurations strictly from import.meta.env
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+// Environment configurations prioritizing firebase-applet-config.json with fallback to import.meta.env
 export const firebaseConfig = {
-  apiKey: (import.meta.env.VITE_FIREBASE_API_KEY || '').trim(),
-  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim(),
-  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim(),
-  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim(),
-  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim(),
-  appId: (import.meta.env.VITE_FIREBASE_APP_ID || '').trim(),
+  apiKey: (appletConfig?.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '').trim(),
+  authDomain: (appletConfig?.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim(),
+  projectId: (appletConfig?.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim(),
+  storageBucket: (appletConfig?.storageBucket || import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim(),
+  messagingSenderId: (appletConfig?.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim(),
+  appId: (appletConfig?.appId || import.meta.env.VITE_FIREBASE_APP_ID || '').trim(),
+  firestoreDatabaseId: (appletConfig?.firestoreDatabaseId || import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '').trim(),
 };
 
 // Check if Firebase environment variables are actively configured
@@ -69,7 +98,9 @@ if (isFirebaseConfigured) {
     auth = getAuth(app);
     // Enforce long-lived local browser persistence
     setPersistence(auth, browserLocalPersistence).catch(() => {});
-    db = getFirestore(app);
+    db = firebaseConfig.firestoreDatabaseId
+      ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(app);
 
     googleProvider = new GoogleAuthProvider();
     googleProvider.setCustomParameters({
@@ -81,6 +112,40 @@ if (isFirebaseConfigured) {
     console.warn('Firebase initialization notice:', error);
   }
 }
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData?.map((provider) => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// Connection validation
+async function testConnection() {
+  if (!db) return;
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Please check your Firebase configuration.');
+    }
+  }
+}
+testConnection();
 
 export { app, auth, db, googleProvider };
 
@@ -153,9 +218,16 @@ export async function syncUserProfileToFirestore(
   authProvider: string = 'google.com'
 ): Promise<void> {
   if (!db || !user) return;
+  const path = `users/${user.uid}`;
   try {
     const userRef = doc(db, 'users', user.uid);
-    const existing = await getDoc(userRef);
+    let existing;
+    try {
+      existing = await getDoc(userRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, path);
+      return;
+    }
     const now = Date.now();
 
     if (!existing.exists()) {
@@ -185,6 +257,7 @@ export async function syncUserProfileToFirestore(
     }
   } catch (e) {
     console.warn('Could not sync user profile to Firestore:', e);
+    handleFirestoreError(e, OperationType.WRITE, path);
   }
 }
 

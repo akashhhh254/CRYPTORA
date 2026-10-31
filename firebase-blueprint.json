@@ -1,0 +1,137 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile representation in Cryptora",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique user ID from Firebase Auth"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user",
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address",
+          "maxLength": 255
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL",
+          "maxLength": 1000
+        },
+        "emailVerified": {
+          "type": "boolean",
+          "description": "Whether the email is verified"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Authentication provider"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Epoch timestamp of user creation"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Epoch timestamp of last update"
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "HistoryItem": {
+      "title": "HistoryItem",
+      "description": "Audit log item of a cryptographic operation",
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "description": "Unique operation identifier",
+          "maxLength": 128
+        },
+        "operationType": {
+          "type": "string",
+          "description": "Encrypt, Decrypt, KeyGen, or Hash",
+          "enum": ["Encrypt", "Decrypt", "KeyGen", "Hash"]
+        },
+        "category": {
+          "type": "string",
+          "description": "Category: Image, File, Text, or Key",
+          "enum": ["Image", "File", "Text", "Key"]
+        },
+        "algorithm": {
+          "type": "string",
+          "description": "Cryptographic algorithm name",
+          "maxLength": 64
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Target identifier or filename",
+          "maxLength": 256
+        },
+        "fileSize": {
+          "type": "number",
+          "description": "File or payload size in bytes"
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "Target MIME type",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "description": "Execution status: Success or Error",
+          "enum": ["Success", "Error"]
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Epoch timestamp when the operation was recorded"
+        },
+        "details": {
+          "type": "string",
+          "description": "Additional metadata details",
+          "maxLength": 2048
+        }
+      },
+      "required": ["operationId", "operationType", "category", "algorithm", "fileName", "status", "createdAt"]
+    },
+    "UserSetting": {
+      "title": "UserSetting",
+      "description": "User preference key-value pair",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Setting key identifier"
+        },
+        "value": {
+          "type": "string",
+          "description": "Setting value"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Epoch timestamp of setting update"
+        }
+      },
+      "required": ["key", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Root user profile document"
+    },
+    "/users/{userId}/history/{operationId}": {
+      "schema": "HistoryItem",
+      "description": "Client cryptographic operation audit history"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "UserSetting",
+      "description": "User customized settings and preferences"
+    }
+  }
+}
