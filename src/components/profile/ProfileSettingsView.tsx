@@ -3,7 +3,7 @@
  * Manage credentials, display name, Firebase session status, and security preferences.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User,
   Mail,
@@ -17,9 +17,18 @@ import {
   Database,
   RefreshCw,
   LogOut,
+  Settings,
+  ExternalLink,
 } from 'lucide-react';
 import { AuthSession } from '../../types/crypto';
-import { isFirebaseConfigured, auth } from '../../services/firebase';
+import {
+  isFirebaseConfigured,
+  checkFirebaseConfigured,
+  getActiveFirebaseConfig,
+  saveStoredFirebaseConfig,
+  clearStoredFirebaseConfig,
+  parseFirebaseConfig,
+} from '../../services/firebase';
 
 interface ProfileSettingsViewProps {
   session: AuthSession | null;
@@ -42,6 +51,17 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [confirmPass, setConfirmPass] = useState('');
   const [passError, setPassError] = useState<string | null>(null);
   const [passSuccess, setPassSuccess] = useState(false);
+
+  // Firebase config state in profile settings
+  const [isConfigDrawerOpen, setIsConfigDrawerOpen] = useState(false);
+  const [cfgSnippet, setCfgSnippet] = useState('');
+  const [cfgApiKey, setCfgApiKey] = useState('');
+  const [cfgProjectId, setCfgProjectId] = useState('');
+  const [cfgSuccess, setCfgSuccess] = useState(false);
+  const [cfgError, setCfgError] = useState<string | null>(null);
+
+  const activeCfg = getActiveFirebaseConfig();
+  const isFbActive = checkFirebaseConfigured();
 
   if (!session) {
     return (
@@ -81,12 +101,52 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       return;
     }
 
-    // In client session or firebase:
     setPassSuccess(true);
     setCurrentPass('');
     setNewPass('');
     setConfirmPass('');
     setTimeout(() => setPassSuccess(false), 3000);
+  };
+
+  const handleSaveFirebaseConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCfgError(null);
+
+    let parsed = null;
+    if (cfgSnippet.trim()) {
+      parsed = parseFirebaseConfig(cfgSnippet);
+      if (!parsed) {
+        setCfgError('Could not parse configuration snippet. Please ensure valid JSON or key-value pairs.');
+        return;
+      }
+    } else if (cfgApiKey.trim() && cfgProjectId.trim()) {
+      parsed = {
+        apiKey: cfgApiKey.trim(),
+        projectId: cfgProjectId.trim(),
+        authDomain: `${cfgProjectId.trim()}.firebaseapp.com`,
+      };
+    } else {
+      setCfgError('Please enter either a config snippet or API Key and Project ID.');
+      return;
+    }
+
+    const saved = saveStoredFirebaseConfig(parsed);
+    if (saved) {
+      setCfgSuccess(true);
+      setTimeout(() => {
+        setCfgSuccess(false);
+        setIsConfigDrawerOpen(false);
+      }, 1500);
+    } else {
+      setCfgError('Initialization failed with provided credentials.');
+    }
+  };
+
+  const handleDisconnectFirebase = () => {
+    if (window.confirm('Disconnect custom Firebase configuration and revert to default environment settings?')) {
+      clearStoredFirebaseConfig();
+      alert('Custom Firebase configuration removed.');
+    }
   };
 
   const handleClearCache = () => {
@@ -164,7 +224,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               <div className="flex justify-between">
                 <span className="text-[#777777]">Provider:</span>
                 <span className="font-semibold text-[#111111]">
-                  {session.user.provider || (isFirebaseConfigured ? 'Firebase' : 'Local PBKDF2')}
+                  {session.user.provider || (isFbActive ? 'Firebase' : 'Local PBKDF2')}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -305,27 +365,127 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             </form>
           </div>
 
-          {/* Firebase Configuration Diagnostics */}
-          <div className="border border-[#E5E5E5] rounded bg-white p-6 space-y-3">
-            <h3 className="text-sm font-bold text-[#111111]">
-              Firebase & Cloud Storage Diagnostics
-            </h3>
-            <div className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded text-xs space-y-1.5 font-mono">
-              <div className="flex justify-between">
+          {/* Firebase Configuration & Cloud Sync Card */}
+          <div className="border border-[#E5E5E5] rounded bg-white p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-[#111111] flex items-center gap-2">
+                  <Database className="w-4 h-4 text-[#111111]" />
+                  <span>Firebase & Cloud Authentication Settings</span>
+                </h3>
+                <p className="text-xs text-[#777777] mt-0.5">
+                  Configure Firebase project integration for Google OAuth and Cloud Firestore history sync.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConfigDrawerOpen(!isConfigDrawerOpen)}
+                className="px-3 py-1.5 bg-[#F7F7F7] hover:bg-[#E5E5E5] text-[#111111] border border-[#E5E5E5] text-xs font-semibold rounded shrink-0 transition-colors flex items-center gap-1.5"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>{isConfigDrawerOpen ? 'Close Settings' : 'Configure Firebase'}</span>
+              </button>
+            </div>
+
+            <div className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded text-xs space-y-2 font-mono">
+              <div className="flex justify-between items-center">
                 <span className="text-[#777777] font-sans">Firebase Integration Status:</span>
-                <span className={isFirebaseConfigured ? 'text-[#16A34A] font-bold' : 'text-[#D97706] font-bold'}>
-                  {isFirebaseConfigured ? 'CONNECTED & ACTIVE' : 'CLIENT CRYPTO FALLBACK ACTIVE'}
+                <span className={isFbActive ? 'text-[#16A34A] font-bold' : 'text-[#D97706] font-bold'}>
+                  {isFbActive ? 'CONNECTED & ACTIVE' : 'CLIENT CRYPTO FALLBACK ACTIVE'}
                 </span>
               </div>
-              <div className="flex justify-between">
+              {activeCfg.projectId && (
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-[#777777] font-sans">Target Project ID:</span>
+                  <span className="text-[#111111]">{activeCfg.projectId}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-[11px]">
                 <span className="text-[#777777] font-sans">Zero-Knowledge Isolation:</span>
-                <span className="text-[#16A34A] font-bold">ENFORCED (No plaintext uploaded)</span>
+                <span className="text-[#16A34A] font-bold">STRICTLY ENFORCED (Plaintext Never Uploaded)</span>
               </div>
             </div>
-            {!isFirebaseConfigured && (
-              <p className="text-[11px] text-[#777777]">
-                To activate remote Google Auth and Firestore sync, define <code className="text-[#111111]">VITE_FIREBASE_API_KEY</code> and <code className="text-[#111111]">VITE_FIREBASE_PROJECT_ID</code> in your Vercel / environment settings.
-              </p>
+
+            {/* Interactive Firebase Configuration Drawer */}
+            {isConfigDrawerOpen && (
+              <form onSubmit={handleSaveFirebaseConfig} className="p-4 border border-[#E5E5E5] rounded bg-white space-y-3 text-xs animate-in fade-in duration-150">
+                <div className="font-semibold text-[#111111]">
+                  Connect Custom Firebase Project
+                </div>
+                <p className="text-[11px] text-[#777777]">
+                  Paste your Firebase web config snippet or enter your project keys. Stored safely in your browser for instant Google Auth on preview and production.
+                </p>
+
+                {cfgError && (
+                  <div className="p-2.5 bg-red-50 border border-red-200 text-[#DC2626] rounded flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{cfgError}</span>
+                  </div>
+                )}
+
+                {cfgSuccess && (
+                  <div className="p-2.5 bg-green-50 border border-green-200 text-[#16A34A] rounded flex items-center gap-2">
+                    <Check className="w-4 h-4 shrink-0" />
+                    <span>Firebase configuration saved and activated!</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-semibold text-[#111111] mb-1">
+                    Config Snippet (JSON or JS Object)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={cfgSnippet}
+                    onChange={(e) => setCfgSnippet(e.target.value)}
+                    placeholder={`const firebaseConfig = {\n  apiKey: "AIzaSy...",\n  projectId: "your-project-id"\n};`}
+                    className="w-full px-3 py-2 text-xs font-mono border border-[#E5E5E5] rounded bg-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#111111] mb-0.5">
+                      API Key
+                    </label>
+                    <input
+                      type="text"
+                      value={cfgApiKey}
+                      onChange={(e) => setCfgApiKey(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="w-full px-3 py-1.5 text-xs font-mono border border-[#E5E5E5] rounded bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#111111] mb-0.5">
+                      Project ID
+                    </label>
+                    <input
+                      type="text"
+                      value={cfgProjectId}
+                      onChange={(e) => setCfgProjectId(e.target.value)}
+                      placeholder="e.g. cryptora-secure"
+                      className="w-full px-3 py-1.5 text-xs font-mono border border-[#E5E5E5] rounded bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-[#111111] hover:bg-[#333333] text-white font-semibold rounded text-xs transition-colors"
+                  >
+                    Save & Activate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDisconnectFirebase}
+                    className="px-4 py-2 bg-white hover:bg-red-50 text-[#DC2626] border border-[#E5E5E5] font-semibold rounded text-xs transition-colors"
+                  >
+                    Disconnect Custom Config
+                  </button>
+                </div>
+              </form>
             )}
           </div>
 
