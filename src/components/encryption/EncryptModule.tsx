@@ -186,6 +186,7 @@ export const EncryptModule: React.FC<EncryptModuleProps> = ({ onDecryptionShortc
       // Record authentic audit log
       logAuditEvent({
         type: 'encrypt',
+        category: 'file',
         fileName: selectedFile.name,
         fileSize: selectedFile.size,
         mimeType: fileValidation?.mimeType || selectedFile.type,
@@ -197,6 +198,7 @@ export const EncryptModule: React.FC<EncryptModuleProps> = ({ onDecryptionShortc
       setErrorMessage(err.message || 'Encryption failed.');
       logAuditEvent({
         type: 'encrypt',
+        category: 'file',
         fileName: selectedFile.name,
         fileSize: selectedFile.size,
         mimeType: selectedFile.type,

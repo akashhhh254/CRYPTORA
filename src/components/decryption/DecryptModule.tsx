@@ -178,6 +178,7 @@ export const DecryptModule: React.FC<DecryptModuleProps> = ({ initialFile }) => 
       // Record authentic audit event
       logAuditEvent({
         type: 'decrypt',
+        category: 'file',
         fileName: selectedFile.name,
         fileSize: selectedFile.size,
         mimeType: result.mimeType,
@@ -189,6 +190,7 @@ export const DecryptModule: React.FC<DecryptModuleProps> = ({ initialFile }) => 
       setErrorMessage(err.message || 'Decryption failed.');
       logAuditEvent({
         type: 'decrypt',
+        category: 'file',
         fileName: selectedFile.name,
         fileSize: selectedFile.size,
         mimeType: 'application/octet-stream',

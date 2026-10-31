@@ -1,150 +1,117 @@
 # CRYPTORA
 
-> **"Your Images. Your Security. Your Control."**
+> **"Your Data. Your Security. Your Control."**
 
-CRYPTORA is a privacy-focused, zero-knowledge digital image protection platform engineered to securely encrypt image files and restore previously encrypted images using authenticated credentials. Built from scratch with standard NIST SP 800-38D AES-256-GCM authenticated encryption and RFC 8018 PBKDF2-SHA256 key stretching, all operations execute 100% locally within the client browser.
-
----
-
-## 1. Project Overview & Philosophy
-
-Modern image sharing often compromises confidentiality when sensitive medical scans, personal identification, proprietary diagrams, or confidential photography are uploaded to cloud servers. 
-
-CRYPTORA solves this problem by executing all cryptographic transformations strictly in the client's isolated browser environment using the W3C Web Cryptography API (`window.crypto.subtle`). Unencrypted image pixels and plain-text passwords never leave your device.
+CRYPTORA is an enterprise-grade digital cryptography and data protection platform engineered to securely encrypt, decrypt, hash, and verify sensitive files and texts using authenticated standards. Built with NIST SP 800-38D AES-256-GCM, RFC 8018 PBKDF2-SHA256, and official Firebase Authentication, all operations execute 100% locally within the client browser.
 
 ---
 
-## 2. Core Features
+## 1. Project Overview & Architecture
 
-- **Authenticated Image Encryption**:
-  - Implements genuine Galois/Counter Mode (AES-256-GCM) with 128-bit authentication tags.
-  - PBKDF2-SHA256 key derivation with 100,000 iterations and 16-byte random salts.
-  - Option to generate cryptographically secure 256-bit random master keys (`.cptkey`).
-  - Supports all major image formats: PNG, JPEG, WEBP, GIF, SVG, BMP, TIFF (up to 50MB).
-  - Preserves exact aspect ratio preview and file metadata.
+Modern digital operations require uncompromising confidentiality. CRYPTORA guarantees that unencrypted texts and files are never sent across the network. All encryption, decryption, hashing, and password generation procedures execute within the browser's isolated memory space via the W3C Web Cryptography API (`window.crypto.subtle`).
 
-- **Tamper-Evident Image Decryption**:
-  - Restores `.cpt` packages only after verifying the 128-bit GMAC authentication tag.
-  - Immediate rejection of incorrect passwords or altered ciphertext bytes.
-  - Byte-for-byte SHA-256 checksum verification against original file signatures.
-  - 100% fidelity download of restored original images.
+### Architecture Highlights
+- **100% Client-Side Cryptographic Isolation**: Plaintext never transits to external servers.
+- **Firebase Authentication & Firestore Sync**: Seamless Google Sign-In, Email/Password auth, and cloud-synchronized audit history with graceful local PBKDF2 fallback.
+- **CPT Container Format**: Self-contained, tamper-evident binary envelope format storing magic headers, version, KDF configuration, 96-bit unique CSPRNG nonce, 16-byte salt, metadata, and 128-bit authentication tag.
+- **Strict Monochrome Design System**: High-contrast, accessibility-tested `#FFFFFF` and `#111111` visual system.
 
-- **Verifiable `.cpt` Container Format**:
-  - Big-endian binary container format storing magic header bytes, version, KDF configuration, unique CSPRNG nonce, salt, and authenticated metadata.
+---
 
-- **Client-Authoritative Account & Session Security**:
-  - Real user registration and sign-in with client-side PBKDF2-SHA256 hashed passwords.
-  - Secure 24-hour cryptographic session tokens.
-  - Zero-Knowledge client audit log with JSON and CSV export capabilities.
+## 2. Core Modules
 
-- **Live Cryptographic Proof Engine**:
-  - In-browser test runner asserting AES-GCM correctness, wrong-password rejection, single-bit tampering detection, and SHA-256 byte matching.
+1. **3-Second Cinematic Splash Screen**:
+   - Introduces the platform, logo mark, and official tagline.
+   - Executes once per session via `sessionStorage` with instant skip option and `prefers-reduced-motion` compliance.
 
-- **Strict White + Black Visual Identity**:
-  - Clean monochrome design system adhering to strict anti-slop guidelines: pure white background (`#FFFFFF`), solid black typography (`#111111`), subtle borders (`#E5E5E5`), zero pills, and full responsiveness from 320px to 1920px.
+2. **Public Landing Page**:
+   - Hero: *"Secure Your Digital World with Cryptora."*
+   - Why Cryptora? section with 6 core principles.
+   - 10 feature cards with direct routing.
+   - 6-step operational workflow.
+   - Security Overview: *"Your Data Deserves Strong Protection."*
+
+3. **Text Encryption & Hashing**:
+   - AES-256-GCM (Authenticated Encryption).
+   - AES-256-CBC (Legacy support).
+   - SHA-256 & SHA-512 (One-way deterministic cryptographic digests).
+   - Exportable formatted JSON packages.
+
+4. **Text Decryption**:
+   - Parses raw inputs or formatted JSON envelopes.
+   - Validates 128-bit GMAC authentication tags to reject tampering.
+
+5. **Universal File Encryption**:
+   - Drag & drop images, PDFs, archives, spreadsheets, and binaries up to 100MB.
+   - Encapsulates into verifiable `.cpt` binary packages.
+
+6. **Universal File Decryption**:
+   - Validates CPT header structure, verifies bit-for-bit SHA-256 checksums, and restores exact MIME types.
+
+7. **Cryptographic Algorithm Knowledge Base**:
+   - In-depth specifications, working principles, key sizes, advantages, and limitations for AES-GCM, AES-CBC, ChaCha20-Poly1305, RSA-OAEP, SHA-2, SHA-3, PBKDF2, and Argon2id.
+
+8. **Operation History & Audit Vault**:
+   - Search, filter by category (Text / File / Encrypt / Decrypt), view detailed record modal, individual deletion, and CSV/JSON export.
+   - Synchronizes to Firestore when Firebase is connected.
+   - **Strict Guarantee**: Plaintext, passwords, and private keys are never recorded.
+
+9. **Cryptographically Secure Password Generator**:
+   - Generates passphrases using hardware-grade `crypto.getRandomValues()`.
+   - Length (8 to 64), uppercase, lowercase, numbers, symbols, and mathematical entropy metrics in bits.
+
+10. **Security Center & Live Proof Suite**:
+    - Live in-browser assertion runner asserting AES-GCM decryption correctness, SHA-256 byte matching, wrong-password rejection, and single-bit tampering detection.
+
+11. **User Profile & Account Settings**:
+    - Manage display name, master password change, Firebase configuration diagnostics, local cache clearing, and account deletion.
+
+12. **Legal & Compliance**:
+    - 13-section comprehensive **Terms & Conditions** (`#/terms`).
+    - 13-section transparent **Privacy Policy** (`#/privacy`).
 
 ---
 
 ## 3. Technology Stack
 
-- **Frontend Framework**: React 19, TypeScript, Vite
+- **Frontend**: React 19, TypeScript, Vite
 - **Styling**: Tailwind CSS v4 (Strict White & Black palette)
-- **Cryptography Engine**: Native W3C Web Cryptography API (`window.crypto.subtle`)
+- **Cryptography**: W3C Web Cryptography API (`window.crypto.subtle`)
+- **Authentication & Database**: Firebase Authentication (Google Sign-In, Email/Password) & Cloud Firestore
 - **Icons**: Lucide Icons
-- **Fonts**: Plus Jakarta Sans (Prose & Display), JetBrains Mono (Data & Hashes)
+- **Fonts**: Plus Jakarta Sans, JetBrains Mono
 
 ---
 
-## 4. Cryptographic Specification
+## 4. Environment Configuration
 
-### A. Primitives & Standards
-| Parameter | Value | Standard |
-| :--- | :--- | :--- |
-| **Symmetric Cipher** | AES-256 | FIPS PUB 197 |
-| **Cipher Mode** | Galois/Counter Mode (GCM) | NIST SP 800-38D |
-| **Authentication Tag** | 128-bit GMAC | NIST SP 800-38D §5.2.1 |
-| **Initialization Vector** | 96-bit (12 bytes, unique per run) | NIST SP 800-38D §8.2.1 |
-| **Key Derivation** | PBKDF2 with HMAC-SHA-256 | RFC 8018 / PKCS #5 v2.1 |
-| **PBKDF2 Iterations** | 100,000 rounds | OWASP Recommended Baseline |
-| **Salt Specification** | 128-bit CSPRNG (16 bytes) | RFC 8018 §4.1 |
-| **Fidelity Checksum** | SHA-256 | FIPS 180-4 |
-
-### B. The CPT Container Binary Layout
-Files encrypted by CRYPTORA are serialized into `.cpt` containers with the following structure:
-```
-+-----------------------------------------------------------------------+
-| Magic Bytes ("CRYPTORA")  | Version (0x01) | KDF Mode (0x01 / 0x02)   |
-| (8 bytes)                 | (1 byte)       | (1 byte)                 |
-+-----------------------------------------------------------------------+
-| Iterations (Uint32BE)     | Salt Length (0x10) | Random Salt          |
-| (4 bytes: 100,000)        | (1 byte)           | (16 bytes)           |
-+-----------------------------------------------------------------------+
-| IV Length (0x0C)          | Nonce / IV (96-bit)| Meta Length (Uint16) |
-| (1 byte)                  | (12 bytes)         | (2 bytes)            |
-+-----------------------------------------------------------------------+
-| Metadata JSON (UTF-8)                                                 |
-| { originalName, mimeType, originalSize, timestamp, sha256Checksum }  |
-+-----------------------------------------------------------------------+
-| AES-256-GCM Ciphertext + 128-bit Authentication Tag                   |
-| (Variable length)                                                     |
-+-----------------------------------------------------------------------+
-```
-
----
-
-## 5. Development & Local Setup
-
-### Prerequisites
-- Node.js >= 18.0.0
-- npm, yarn, or pnpm
-
-### Installation
+Copy `.env.example` to `.env.local` to configure Firebase:
 ```bash
-# Clone or enter repository
-cd cryptora
-
-# Install dependencies
-npm install
-
-# Start local development server (runs on port 3000)
-npm run dev
-
-# Compile TypeScript and build for production
-npm run build
-
-# Run linter / type checker
-npm run lint
+# Firebase Authentication & Firestore (Optional - activates remote Google Auth & Cloud Sync)
+VITE_FIREBASE_API_KEY="AIzaSy..."
+VITE_FIREBASE_AUTH_DOMAIN="your-project-id.firebaseapp.com"
+VITE_FIREBASE_PROJECT_ID="your-project-id"
+VITE_FIREBASE_STORAGE_BUCKET="your-project-id.firebasestorage.app"
+VITE_FIREBASE_MESSAGING_SENDER_ID="123456789012"
+VITE_FIREBASE_APP_ID="1:123456789012:web:abcdef123456"
 ```
+
+If these environment variables are not supplied, CRYPTORA automatically operates in **Client Cryptographic Vault Mode** using local PBKDF2 salted credentials.
 
 ---
 
-## 6. Authentication Setup & Credentials
+## 5. Pre-Configured Security Auditor Credentials
 
-CRYPTORA includes pre-seeded credentials for immediate security auditing:
+For immediate security audits and testing without registering a new email:
 - **Email**: `security@cryptora.io`
 - **Password**: `CryptoraSecure#2026`
 
-Users can also register any new account directly in the application. All credentials are encrypted and validated client-side with PBKDF2-SHA256.
-
-For enterprise OAuth 2.0 / SAML single-sign-on integration with Google Cloud Identity, consult the OAuth section in the application settings.
-
 ---
 
-## 7. Deployment Instructions
+## 6. Vercel Production Deployment
 
-### Deploying to Vercel
-1. Push the codebase to a GitHub or GitLab repository.
-2. In the Vercel dashboard, click **"Add New Project"** and select the repository.
-3. Framework Preset: **Vite**.
-4. Build Command: `npm run build`.
-5. Output Directory: `dist`.
-6. The repository includes `.npmrc` (`legacy-peer-deps=true`) to prevent peer dependency resolution errors during `npm install`, and `vercel.json` for SPA route rewriting.
-7. Click **Deploy**.
-
----
-
-## 8. Security Considerations & Best Practices
-
-1. **Password Custody**: Because CRYPTORA does not store passphrases on a remote server, **loss of your passphrase makes recovery mathematically impossible**. Always maintain offline backups of critical passphrases.
-2. **Master Key Storage**: If using the Generated 256-Bit Master Key mode, store your downloaded `.cptkey` file in an encrypted physical USB drive or secure offline password manager.
-3. **Nonce Freshness**: A fresh 12-byte CSPRNG nonce is generated for every single encryption. Nonces are never reused.
+The project is fully pre-configured for Vercel:
+1. `.npmrc` with `legacy-peer-deps=true` resolves peer dependency resolution during `npm install`.
+2. `vercel.json` ensures single-page route rewrites (`"destination": "/index.html"`).
+3. Build command: `npm run build`.
+4. Output directory: `dist`.

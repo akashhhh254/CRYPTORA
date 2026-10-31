@@ -2,9 +2,12 @@
  * CRYPTORA Audit Log Service
  * Records authentic client-side encryption and decryption events.
  * Strictly avoids fake mock metrics; records real user actions only.
+ * Supports Firestore synchronization when Firebase is authenticated.
  */
 
 import { AuditLogItem } from '../types/crypto';
+import { db } from './firebase';
+import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 const AUDIT_STORAGE_KEY = 'cryptora_audit_logs_v1';
 
@@ -18,18 +21,56 @@ export function getAuditLogs(): AuditLogItem[] {
   }
 }
 
-export function logAuditEvent(item: Omit<AuditLogItem, 'id' | 'timestamp'>): AuditLogItem {
+export function logAuditEvent(item: Omit<AuditLogItem, 'id' | 'timestamp'>, userId?: string): AuditLogItem {
   const logs = getAuditLogs();
   const newItem: AuditLogItem = {
     ...item,
-    id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    id: `op_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     timestamp: Date.now(),
+    userId: userId || item.userId,
   };
 
-  // Prepend so latest is first, cap to 100 entries
-  const updated = [newItem, ...logs].slice(0, 100);
+  // Prepend so latest is first, cap to 200 entries
+  const updated = [newItem, ...logs].slice(0, 200);
   localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updated));
+
+  // Sync to Firestore if user is authenticated and db is available
+  if (db && userId) {
+    try {
+      const historyDocRef = doc(db, 'users', userId, 'history', newItem.id);
+      setDoc(historyDocRef, {
+        operationId: newItem.id,
+        operationType: newItem.type,
+        category: newItem.category,
+        algorithm: newItem.algorithm,
+        fileName: newItem.fileName,
+        fileSize: newItem.fileSize,
+        mimeType: newItem.mimeType,
+        status: newItem.status,
+        createdAt: newItem.timestamp,
+        details: newItem.details || '',
+      }).catch((e) => console.warn('Could not write history to Firestore:', e));
+    } catch {
+      // Non-blocking fallback
+    }
+  }
+
   return newItem;
+}
+
+export function deleteAuditLog(id: string, userId?: string): void {
+  const logs = getAuditLogs();
+  const updated = logs.filter((l) => l.id !== id);
+  localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updated));
+
+  if (db && userId) {
+    try {
+      const historyDocRef = doc(db, 'users', userId, 'history', id);
+      deleteDoc(historyDocRef).catch(() => {});
+    } catch {
+      // Non-blocking
+    }
+  }
 }
 
 export function clearAuditLogs(): void {
@@ -47,10 +88,11 @@ export function exportAuditLogs(format: 'json' | 'csv'): void {
     filename += '.json';
     type = 'application/json';
   } else {
-    const headers = ['Timestamp', 'Type', 'File Name', 'Size (Bytes)', 'MIME Type', 'Algorithm', 'Status', 'Details'];
+    const headers = ['Timestamp', 'Type', 'Category', 'Target Identifier', 'Size (Bytes)', 'MIME Type', 'Algorithm', 'Status', 'Details'];
     const rows = logs.map((l) => [
       new Date(l.timestamp).toISOString(),
       l.type,
+      l.category,
       `"${l.fileName.replace(/"/g, '""')}"`,
       l.fileSize,
       l.mimeType,

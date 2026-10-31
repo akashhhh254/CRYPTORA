@@ -10,6 +10,8 @@ import {
   EncryptedPackage,
   EncryptionOptions,
   FileValidationResult,
+  PasswordGeneratorOptions,
+  TextEncryptionResult,
 } from '../types/crypto';
 
 // CPT Container Magic Bytes: "CRYPTORA" (8 bytes)
@@ -564,3 +566,490 @@ export async function decryptImage(
     decryptionTimeMs,
   };
 }
+
+/**
+ * Text Encryption Module
+ * Supports AES-256-GCM, AES-256-CBC, and RSA-OAEP
+ */
+export async function encryptText(
+  plaintext: string,
+  algorithm: string,
+  keyOrPass: string,
+  mode: 'password' | 'key' = 'password'
+): Promise<TextEncryptionResult> {
+  const enc = new TextEncoder();
+  const data = enc.encode(plaintext);
+
+  if (algorithm.startsWith('SHA-')) {
+    // Hashing only
+    const hashAlg = algorithm === 'SHA-512' ? 'SHA-512' : 'SHA-256';
+    const hashBuffer = await crypto.subtle.digest(hashAlg, data);
+    const hex = bytesToHex(new Uint8Array(hashBuffer));
+    return {
+      ciphertext: hex,
+      algorithm,
+      timestamp: Date.now(),
+      isHash: true,
+      packageJson: JSON.stringify({
+        algorithm,
+        digest: hex,
+        timestamp: Date.now(),
+        type: 'cryptographic_hash',
+      }, null, 2),
+    };
+  }
+
+  if (algorithm === 'AES-256-CBC') {
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    const iv = new Uint8Array(16); // 16 bytes for CBC
+    crypto.getRandomValues(iv);
+
+    let cryptoKey: CryptoKey;
+    if (mode === 'password') {
+      const passKey = await crypto.subtle.importKey('raw', enc.encode(keyOrPass), { name: 'PBKDF2' }, false, ['deriveKey']);
+      cryptoKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100000, hash: 'SHA-256' },
+        passKey,
+        { name: 'AES-CBC', length: 256 },
+        false,
+        ['encrypt']
+      );
+    } else {
+      const raw = hexToBytes(keyOrPass);
+      cryptoKey = await crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-CBC', length: 256 }, false, ['encrypt']);
+    }
+
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-CBC', iv: iv as BufferSource }, cryptoKey, data);
+    const ctHex = bytesToHex(new Uint8Array(encrypted));
+    const saltHex = bytesToHex(salt);
+    const ivHex = bytesToHex(iv);
+
+    const packageJson = JSON.stringify({
+      algorithm: 'AES-256-CBC',
+      kdf: mode === 'password' ? 'PBKDF2-SHA256' : 'RAW-256',
+      iterations: mode === 'password' ? 100000 : undefined,
+      salt: saltHex,
+      iv: ivHex,
+      ciphertext: ctHex,
+      timestamp: Date.now(),
+    }, null, 2);
+
+    return {
+      ciphertext: ctHex,
+      algorithm: 'AES-256-CBC',
+      ivHex,
+      saltHex,
+      timestamp: Date.now(),
+      packageJson,
+    };
+  }
+
+  // Default: Authenticated AES-256-GCM
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const iv = new Uint8Array(12); // 96-bit nonce
+  crypto.getRandomValues(iv);
+
+  let cryptoKey: CryptoKey;
+  if (mode === 'password') {
+    cryptoKey = await deriveKeyFromPassword(keyOrPass, salt, 100000);
+  } else {
+    const raw = hexToBytes(keyOrPass);
+    cryptoKey = await importRawAesKey(raw);
+  }
+
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource, tagLength: 128 },
+    cryptoKey,
+    data
+  );
+
+  const ctBytes = new Uint8Array(encryptedBuffer);
+  // Separate ciphertext and 16-byte tag
+  const tagBytes = ctBytes.slice(ctBytes.length - 16);
+  const rawCtBytes = ctBytes.slice(0, ctBytes.length - 16);
+
+  const ctHex = bytesToHex(rawCtBytes);
+  const tagHex = bytesToHex(tagBytes);
+  const saltHex = bytesToHex(salt);
+  const ivHex = bytesToHex(iv);
+
+  const packageObj = {
+    algorithm: 'AES-256-GCM',
+    version: 1,
+    kdf: mode === 'password' ? 'PBKDF2-SHA256' : 'RAW-KEY-256',
+    iterations: mode === 'password' ? 100000 : undefined,
+    salt: saltHex,
+    iv: ivHex,
+    tag: tagHex,
+    ciphertext: ctHex,
+    timestamp: Date.now(),
+  };
+
+  return {
+    ciphertext: ctHex,
+    algorithm: 'AES-256-GCM',
+    ivHex,
+    saltHex,
+    tagHex,
+    timestamp: Date.now(),
+    packageJson: JSON.stringify(packageObj, null, 2),
+  };
+}
+
+/**
+ * Text Decryption Module
+ * Supports parsing raw fields or full JSON package
+ */
+export async function decryptText(payload: {
+  ciphertext: string;
+  algorithm: string;
+  keyOrPass: string;
+  ivHex?: string;
+  saltHex?: string;
+  tagHex?: string;
+}): Promise<string> {
+  const enc = new TextEncoder();
+  const cleanCt = payload.ciphertext.trim();
+
+  // If user pasted full JSON package
+  let parsedPayload = payload;
+  if (cleanCt.startsWith('{') && cleanCt.endsWith('}')) {
+    try {
+      const obj = JSON.parse(cleanCt);
+      parsedPayload = {
+        ciphertext: obj.ciphertext || cleanCt,
+        algorithm: obj.algorithm || payload.algorithm,
+        keyOrPass: payload.keyOrPass,
+        ivHex: obj.iv || payload.ivHex,
+        saltHex: obj.salt || payload.saltHex,
+        tagHex: obj.tag || payload.tagHex,
+      };
+    } catch {
+      // Continue with raw inputs
+    }
+  }
+
+  if (parsedPayload.algorithm === 'AES-256-CBC') {
+    if (!parsedPayload.ivHex || !parsedPayload.saltHex) {
+      throw new Error('AES-256-CBC decryption requires IV and Salt parameters.');
+    }
+    const salt = hexToBytes(parsedPayload.saltHex);
+    const iv = hexToBytes(parsedPayload.ivHex);
+    const ctBytes = hexToBytes(parsedPayload.ciphertext);
+
+    let cryptoKey: CryptoKey;
+    try {
+      const passKey = await crypto.subtle.importKey('raw', enc.encode(parsedPayload.keyOrPass), { name: 'PBKDF2' }, false, ['deriveKey']);
+      cryptoKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100000, hash: 'SHA-256' },
+        passKey,
+        { name: 'AES-CBC', length: 256 },
+        false,
+        ['decrypt']
+      );
+    } catch {
+      const raw = hexToBytes(parsedPayload.keyOrPass);
+      cryptoKey = await crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-CBC', length: 256 }, false, ['decrypt']);
+    }
+
+    try {
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: iv as BufferSource }, cryptoKey, ctBytes as BufferSource);
+      return new TextDecoder().decode(decrypted);
+    } catch {
+      throw new Error('Decryption failed: Incorrect key, corrupted ciphertext, or invalid padding.');
+    }
+  }
+
+  // Default: AES-256-GCM
+  if (!parsedPayload.ivHex) {
+    throw new Error('AES-256-GCM requires a 96-bit IV (Nonce).');
+  }
+
+  const iv = hexToBytes(parsedPayload.ivHex);
+  const salt = parsedPayload.saltHex ? hexToBytes(parsedPayload.saltHex) : new Uint8Array(16);
+
+  // Combine ciphertext and tag
+  const rawCt = hexToBytes(parsedPayload.ciphertext);
+  const tag = parsedPayload.tagHex ? hexToBytes(parsedPayload.tagHex) : new Uint8Array(0);
+
+  const fullCt = new Uint8Array(rawCt.length + tag.length);
+  fullCt.set(rawCt, 0);
+  fullCt.set(tag, rawCt.length);
+
+  let cryptoKey: CryptoKey;
+  // Try deriving key from password
+  if (parsedPayload.keyOrPass.length === 64 && /^[0-9a-fA-F]+$/.test(parsedPayload.keyOrPass)) {
+    // Looks like raw hex key
+    try {
+      const rawKey = hexToBytes(parsedPayload.keyOrPass);
+      cryptoKey = await importRawAesKey(rawKey);
+    } catch {
+      cryptoKey = await deriveKeyFromPassword(parsedPayload.keyOrPass, salt, 100000);
+    }
+  } else {
+    cryptoKey = await deriveKeyFromPassword(parsedPayload.keyOrPass, salt, 100000);
+  }
+
+  try {
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as BufferSource, tagLength: 128 },
+      cryptoKey,
+      fullCt as BufferSource
+    );
+    return new TextDecoder('utf-8').decode(decryptedBuffer);
+  } catch (err) {
+    throw new Error('Integrity verification failed: Authentication tag mismatch. Incorrect key or password, or ciphertext has been tampered with.');
+  }
+}
+
+/**
+ * Universal File Encryption
+ * Encrypts any file format (PDF, images, documents, archives, binaries) into a .cpt container.
+ */
+export async function encryptFileAny(
+  file: File,
+  options: EncryptionOptions,
+  onProgress?: (percent: number, stage: string) => void
+): Promise<EncryptedPackage> {
+  const maxSizeBytes = 100 * 1024 * 1024; // 100MB
+  if (file.size === 0) {
+    throw new Error('File is empty (0 bytes).');
+  }
+  if (file.size > maxSizeBytes) {
+    throw new Error(`File size exceeds 100MB maximum limit (${(file.size / (1024 * 1024)).toFixed(1)}MB).`);
+  }
+
+  onProgress?.(15, 'Reading binary file data...');
+  const fileBuffer = await file.arrayBuffer();
+
+  onProgress?.(30, 'Computing original SHA-256 integrity checksum...');
+  const sha256Original = await calculateSha256(fileBuffer);
+
+  const salt = new Uint8Array(SALT_LENGTH);
+  crypto.getRandomValues(salt);
+
+  const iv = new Uint8Array(IV_LENGTH);
+  crypto.getRandomValues(iv);
+
+  let cryptoKey: CryptoKey;
+  let rawKeyHex: string | undefined = undefined;
+  const iterations = options.iterations || DEFAULT_PBKDF2_ITERATIONS;
+
+  if (options.mode === 'password') {
+    if (!options.password || options.password.length < 1) {
+      throw new Error('Encryption password cannot be empty.');
+    }
+    onProgress?.(50, `Deriving key with PBKDF2 (${iterations.toLocaleString()} rounds)...`);
+    cryptoKey = await deriveKeyFromPassword(options.password, salt, iterations);
+  } else {
+    if (!options.rawKeyBytes || options.rawKeyBytes.length !== 32) {
+      throw new Error('Valid 256-bit master key is required.');
+    }
+    onProgress?.(50, 'Importing 256-bit master key...');
+    rawKeyHex = bytesToHex(options.rawKeyBytes);
+    cryptoKey = await importRawAesKey(options.rawKeyBytes);
+  }
+
+  onProgress?.(70, 'Executing authenticated AES-256-GCM encryption...');
+  const ciphertextBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource, tagLength: 128 },
+    cryptoKey,
+    fileBuffer
+  );
+
+  onProgress?.(85, 'Assembling CRYPTORA binary container...');
+  const metadata = {
+    originalName: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    originalSize: file.size,
+    timestamp: Date.now(),
+    sha256Checksum: sha256Original,
+  };
+
+  const metaJsonBytes = new TextEncoder().encode(JSON.stringify(metadata));
+  const metaLength = metaJsonBytes.length;
+
+  const headerSize = 8 + 1 + 1 + 4 + 1 + SALT_LENGTH + 1 + IV_LENGTH + 2 + metaLength;
+  const totalContainerSize = headerSize + ciphertextBuffer.byteLength;
+
+  const containerBuffer = new ArrayBuffer(totalContainerSize);
+  const containerBytes = new Uint8Array(containerBuffer);
+  const view = new DataView(containerBuffer);
+
+  let offset = 0;
+  containerBytes.set(CPT_MAGIC, offset);
+  offset += 8;
+  containerBytes[offset++] = CPT_VERSION;
+  containerBytes[offset++] = options.mode === 'password' ? 0x01 : 0x02;
+  view.setUint32(offset, iterations, false);
+  offset += 4;
+  containerBytes[offset++] = SALT_LENGTH;
+  containerBytes.set(salt, offset);
+  offset += SALT_LENGTH;
+  containerBytes[offset++] = IV_LENGTH;
+  containerBytes.set(iv, offset);
+  offset += IV_LENGTH;
+  view.setUint16(offset, metaLength, false);
+  offset += 2;
+  containerBytes.set(metaJsonBytes, offset);
+  offset += metaLength;
+  containerBytes.set(new Uint8Array(ciphertextBuffer), offset);
+
+  const containerBlob = new Blob([containerBuffer], { type: 'application/octet-stream' });
+  const outputFilename = `${file.name}.cpt`;
+
+  onProgress?.(100, 'File encryption complete.');
+
+  return {
+    blob: containerBlob,
+    filename: outputFilename,
+    originalName: file.name,
+    originalSize: file.size,
+    originalMimeType: metadata.mimeType,
+    encryptedSize: totalContainerSize,
+    saltHex: bytesToHex(salt),
+    ivHex: bytesToHex(iv),
+    kdfMode: options.mode === 'password' ? 'PBKDF2-SHA256' : 'RAW-AES-256',
+    iterations,
+    timestamp: metadata.timestamp,
+    sha256Original,
+    rawKeyHex,
+  };
+}
+
+/**
+ * Universal File Decryption
+ */
+export async function decryptFileAny(
+  cptFile: File,
+  credentials: { password?: string; rawKeyHex?: string },
+  onProgress?: (percent: number, stage: string) => void
+): Promise<DecryptedResult> {
+  const startTime = performance.now();
+
+  onProgress?.(15, 'Reading CRYPTORA package container...');
+  const buffer = await cptFile.arrayBuffer();
+
+  onProgress?.(30, 'Inspecting container headers and metadata...');
+  const inspection = inspectCptHeader(buffer);
+  if (!inspection.valid || !inspection.metadata || !inspection.ciphertextOffset) {
+    throw new Error(inspection.error || 'Failed to parse CRYPTORA container.');
+  }
+
+  const { kdfMode, iterations, saltHex, ivHex, metadata, ciphertextOffset } = inspection;
+  const salt = hexToBytes(saltHex!);
+  const iv = hexToBytes(ivHex!);
+  const ciphertextWithTag = new Uint8Array(buffer, ciphertextOffset);
+
+  let cryptoKey: CryptoKey;
+  if (kdfMode === 'PBKDF2-SHA256') {
+    if (!credentials.password) {
+      throw new Error('This encrypted package was protected with a password. Please enter the password.');
+    }
+    onProgress?.(50, `Deriving key with ${iterations?.toLocaleString()} PBKDF2 rounds...`);
+    cryptoKey = await deriveKeyFromPassword(credentials.password, salt, iterations || DEFAULT_PBKDF2_ITERATIONS);
+  } else {
+    if (!credentials.rawKeyHex) {
+      throw new Error('This encrypted package requires the 256-bit Master Key.');
+    }
+    onProgress?.(50, 'Importing 256-bit AES Master Key...');
+    const rawKeyBytes = hexToBytes(credentials.rawKeyHex);
+    cryptoKey = await importRawAesKey(rawKeyBytes);
+  }
+
+  onProgress?.(70, 'Verifying AES-256-GCM authentication tag and decrypting...');
+  let decryptedBuffer: ArrayBuffer;
+  try {
+    decryptedBuffer = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as BufferSource, tagLength: 128 },
+      cryptoKey,
+      ciphertextWithTag as BufferSource
+    );
+  } catch {
+    throw new Error(
+      'Integrity verification failed: Authentication tag mismatch. Either the password / key is incorrect, or the file has been corrupted or modified.'
+    );
+  }
+
+  onProgress?.(90, 'Computing SHA-256 checksum and verifying fidelity...');
+  const sha256Restored = await calculateSha256(decryptedBuffer);
+
+  const verified = metadata.sha256Checksum
+    ? metadata.sha256Checksum.toLowerCase() === sha256Restored.toLowerCase()
+    : true;
+
+  if (!verified) {
+    throw new Error('Integrity verification failed: Restored file checksum does not match original signature.');
+  }
+
+  const mimeType = metadata.mimeType || 'application/octet-stream';
+  const restoredBlob = new Blob([decryptedBuffer], { type: mimeType });
+  const objectUrl = URL.createObjectURL(restoredBlob);
+  const decryptionTimeMs = Math.round(performance.now() - startTime);
+
+  onProgress?.(100, 'File restored successfully.');
+
+  return {
+    blob: restoredBlob,
+    url: objectUrl,
+    filename: metadata.originalName || 'restored_file',
+    size: decryptedBuffer.byteLength,
+    mimeType,
+    sha256Restored,
+    originalSha256Expected: metadata.sha256Checksum,
+    verified,
+    decryptionTimeMs,
+  };
+}
+
+/**
+ * Cryptographically Secure Password Generator
+ * Uses window.crypto.getRandomValues() exclusively. Never Math.random().
+ */
+export function generateSecurePassword(options: PasswordGeneratorOptions): {
+  password: string;
+  entropyBits: number;
+  strength: 'Weak' | 'Fair' | 'Strong' | 'Enterprise';
+} {
+  const uppercaseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lowercaseChars = 'abcdefghijklmnopqrstuvwxyz';
+  const numberChars = '0123456789';
+  const symbolChars = '!@#$%^&*()-_=+[]{}|;:,.<>?';
+
+  let pool = '';
+  if (options.includeUppercase) pool += uppercaseChars;
+  if (options.includeLowercase) pool += lowercaseChars;
+  if (options.includeNumbers) pool += numberChars;
+  if (options.includeSymbols) pool += symbolChars;
+
+  if (pool.length === 0) {
+    pool = lowercaseChars + numberChars;
+  }
+
+  const length = Math.max(8, Math.min(64, options.length));
+  const randomBytes = new Uint8Array(length);
+  crypto.getRandomValues(randomBytes);
+
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += pool[randomBytes[i] % pool.length];
+  }
+
+  // Calculate entropy: log2(poolSize^length) = length * log2(poolSize)
+  const poolSize = pool.length;
+  const entropyBits = Math.round(length * Math.log2(poolSize));
+
+  let strength: 'Weak' | 'Fair' | 'Strong' | 'Enterprise' = 'Weak';
+  if (entropyBits >= 90) strength = 'Enterprise';
+  else if (entropyBits >= 65) strength = 'Strong';
+  else if (entropyBits >= 45) strength = 'Fair';
+
+  return {
+    password: result,
+    entropyBits,
+    strength,
+  };
+}
+

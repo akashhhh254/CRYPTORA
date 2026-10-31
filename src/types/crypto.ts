@@ -1,6 +1,6 @@
 /**
  * CRYPTORA Cryptography & Core Types
- * Strict Monochrome Cybersecurity Platform
+ * Complete Full-Stack Cybersecurity Platform Types
  */
 
 export type EncryptionMode = 'password' | 'generated_key';
@@ -68,9 +68,22 @@ export interface CptHeaderInspection {
   error?: string;
 }
 
+export interface TextEncryptionResult {
+  ciphertext: string;
+  algorithm: string;
+  ivHex?: string;
+  saltHex?: string;
+  tagHex?: string;
+  keyHex?: string;
+  timestamp: number;
+  isHash?: boolean;
+  packageJson?: string;
+}
+
 export interface AuditLogItem {
   id: string;
-  type: 'encrypt' | 'decrypt';
+  type: 'encrypt' | 'decrypt' | 'hash';
+  category: 'text' | 'file';
   fileName: string;
   fileSize: number;
   mimeType: string;
@@ -78,6 +91,7 @@ export interface AuditLogItem {
   timestamp: number;
   status: 'success' | 'failed';
   details?: string;
+  userId?: string;
 }
 
 export interface UserAccount {
@@ -88,6 +102,8 @@ export interface UserAccount {
   passwordHashHex: string;
   createdAt: number;
   lastLoginAt: number;
+  photoURL?: string;
+  provider?: string;
 }
 
 export interface AuthSession {
@@ -95,7 +111,31 @@ export interface AuthSession {
     id: string;
     email: string;
     name: string;
+    photoURL?: string;
+    provider?: string;
   };
   token: string;
   expiresAt: number;
+}
+
+export interface AlgorithmInfo {
+  id: string;
+  name: string;
+  category: 'symmetric' | 'asymmetric' | 'hash' | 'kdf';
+  purpose: string;
+  workingPrinciple: string;
+  keySize: string;
+  securityCharacteristics: string;
+  applications: string;
+  advantages: string[];
+  limitations: string[];
+  standard: string;
+}
+
+export interface PasswordGeneratorOptions {
+  length: number;
+  includeUppercase: boolean;
+  includeLowercase: boolean;
+  includeNumbers: boolean;
+  includeSymbols: boolean;
 }

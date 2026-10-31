@@ -1,462 +1,447 @@
 /**
- * CRYPTORA Landing Page
- * Strictly adheres to White + Black visual identity (#FFFFFF canvas, #111111 typography).
- * Real cryptographic storytelling, zero-pill discipline, anti-slop principles.
+ * CRYPTORA Public Landing Page
+ * Conforms to Phase 4 Requirements:
+ * - Hero: "Secure Your Digital World with Cryptora."
+ * - Why Cryptora? section
+ * - 10 Professional Feature Cards with working CTAs
+ * - How It Works 6-Step workflow
+ * - Security Overview: "Your Data Deserves Strong Protection."
+ * - Strict White + Black palette, anti-slop typography.
  */
 
 import React, { useState } from 'react';
 import {
+  FileText,
+  FileCode,
   Lock,
   Unlock,
-  Shield,
+  Sliders,
+  History,
+  KeyRound,
   FileCheck,
-  Cpu,
+  Key,
+  ShieldCheck,
+  ShieldAlert,
   ArrowRight,
   Check,
-  KeyRound,
-  Download,
-  Eye,
-  FileCode2,
+  Cpu,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 
 interface LandingViewProps {
   onNavigate: (route: string) => void;
   onOpenAuth: (mode?: 'login' | 'register') => void;
+  isAuthenticated?: boolean;
 }
 
 export const LandingView: React.FC<LandingViewProps> = ({
   onNavigate,
   onOpenAuth,
+  isAuthenticated = false,
 }) => {
-  // Interactive Live Cryptographic Sandbox on Landing Page
-  const [sampleText, setSampleText] = useState('Confidential biometric specimen #8491');
-  const [samplePassword, setSamplePassword] = useState('AlphaBravo#2026');
-  const [demoCiphertext, setDemoCiphertext] = useState('');
-  const [demoTag, setDemoTag] = useState('');
-  const [isDemoEncrypting, setIsDemoEncrypting] = useState(false);
-
-  const handleRunDemoEncryption = async () => {
-    setIsDemoEncrypting(true);
-    try {
-      const enc = new TextEncoder();
-      const salt = crypto.getRandomValues(new Uint8Array(16));
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-
-      // Derive key
-      const passKey = await crypto.subtle.importKey(
-        'raw',
-        enc.encode(samplePassword),
-        { name: 'PBKDF2' },
-        false,
-        ['deriveKey']
-      );
-      const aesKey = await crypto.subtle.deriveKey(
-        {
-          name: 'PBKDF2',
-          salt: salt,
-          iterations: 10000,
-          hash: 'SHA-256',
-        },
-        passKey,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt']
-      );
-
-      const ciphertext = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv, tagLength: 128 },
-        aesKey,
-        enc.encode(sampleText)
-      );
-
-      const ctBytes = new Uint8Array(ciphertext);
-      let hex = '';
-      for (let i = 0; i < ctBytes.length; i++) {
-        hex += ctBytes[i].toString(16).padStart(2, '0');
-      }
-
-      setDemoCiphertext(hex.slice(0, hex.length - 32));
-      setDemoTag(hex.slice(hex.length - 32));
-    } catch (e) {
-      // Demo error handling
-    } finally {
-      setIsDemoEncrypting(false);
+  const handleProtectedAction = (route: string) => {
+    if (isAuthenticated) {
+      onNavigate(route);
+    } else {
+      onOpenAuth('login');
     }
   };
 
+  const featureCards = [
+    {
+      id: 'text-encrypt',
+      title: 'Text Encryption',
+      description: 'Transform sensitive messages, tokens, and credentials into authenticated AES-256-GCM ciphertexts.',
+      icon: FileText,
+      action: () => handleProtectedAction('encrypt'),
+      actionLabel: 'Launch Text Encryptor',
+    },
+    {
+      id: 'text-decrypt',
+      title: 'Text Decryption',
+      description: 'Authenticate 128-bit GMAC tags and restore original text payloads with zero corruption risk.',
+      icon: FileCode,
+      action: () => handleProtectedAction('decrypt'),
+      actionLabel: 'Launch Text Decryptor',
+    },
+    {
+      id: 'file-encrypt',
+      title: 'File Encryption',
+      description: 'Encapsulate images, PDFs, archives, and binaries into verifiable CRYPTORA container packages.',
+      icon: Lock,
+      action: () => handleProtectedAction('file-encrypt'),
+      actionLabel: 'Encrypt File Package',
+    },
+    {
+      id: 'file-decrypt',
+      title: 'File Decryption',
+      description: 'Verify digital container signatures and restore files with exact byte-for-byte fidelity.',
+      icon: Unlock,
+      action: () => handleProtectedAction('file-decrypt'),
+      actionLabel: 'Decrypt File Package',
+    },
+    {
+      id: 'algorithms',
+      title: 'Cryptographic Algorithms',
+      description: 'Explore verified specifications of AES-GCM, CBC, ChaCha20, RSA-OAEP, SHA-2, SHA-3, and Argon2.',
+      icon: Sliders,
+      action: () => onNavigate('algorithms'),
+      actionLabel: 'Explore Knowledge Base',
+    },
+    {
+      id: 'history',
+      title: 'Secure Activity History',
+      description: 'Review isolated session logs with search, category filtering, and CSV/JSON export capability.',
+      icon: History,
+      action: () => handleProtectedAction('history'),
+      actionLabel: 'View Audit Records',
+    },
+    {
+      id: 'password-generator',
+      title: 'Password Generator',
+      description: 'Produce high-entropy passphrases utilizing CSPRNG crypto.getRandomValues with exact bit metrics.',
+      icon: KeyRound,
+      action: () => handleProtectedAction('password-generator'),
+      actionLabel: 'Generate Passwords',
+    },
+    {
+      id: 'file-integrity',
+      title: 'File Integrity Verification',
+      description: 'Compute deterministic SHA-256 and SHA-512 hashes to detect unauthorized file tampering.',
+      icon: FileCheck,
+      action: () => onNavigate('security'),
+      actionLabel: 'Verify File Hashes',
+    },
+    {
+      id: 'key-management',
+      title: 'Encryption Key Management',
+      description: 'Generate 256-bit symmetric keys, export .cptkey backups, and audit key derivation parameters.',
+      icon: Key,
+      action: () => handleProtectedAction('dashboard'),
+      actionLabel: 'Manage Keys',
+    },
+    {
+      id: 'security-center',
+      title: 'Security Center',
+      description: 'Inspect live in-browser assertion tests, zero-knowledge proofs, and client memory isolation.',
+      icon: ShieldCheck,
+      action: () => onNavigate('security'),
+      actionLabel: 'Open Security Center',
+    },
+  ];
+
   return (
-    <div className="w-full bg-white text-[#111111] overflow-x-hidden">
+    <div className="w-full bg-white text-[#111111]">
       {/* 1. HERO SECTION */}
-      <section className="relative pt-16 pb-20 md:pt-24 md:pb-32 border-b border-[#E5E5E5]">
+      <section className="relative pt-16 pb-20 md:pt-24 md:pb-28 border-b border-[#E5E5E5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl space-y-6">
-            <span className="text-xs font-bold tracking-widest text-[#666666] uppercase">
-              Authenticated Image Cryptography
-            </span>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+            {/* Left Column: Heading and CTAs */}
+            <div className="lg:col-span-7 space-y-6">
+              <span className="text-xs font-mono font-bold tracking-widest text-[#777777] uppercase block">
+                Enterprise Cryptography Platform
+              </span>
 
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-[#111111] leading-[1.08] text-balance">
-              Your Images. Your Security. Your Control.
-            </h1>
+              <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-[#111111] leading-[1.08] text-balance">
+                Secure Your Digital World with Cryptora.
+              </h1>
 
-            <p className="text-base sm:text-lg text-[#666666] leading-relaxed max-w-2xl">
-              Protect your digital images with secure encryption and straightforward decryption workflows.
-              Experience privacy-focused image protection with CRYPTORA.
-            </p>
+              <p className="text-base sm:text-lg text-[#777777] leading-relaxed max-w-xl">
+                Experience powerful encryption, secure decryption and intelligent cryptographic tools designed to protect your digital information.
+              </p>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
-              <button
-                onClick={() => onNavigate('encrypt')}
-                className="py-3 px-6 bg-[#111111] hover:bg-[#1C1C1C] text-white text-xs font-semibold rounded flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
-              >
-                <span>Start Encrypting</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    if (isAuthenticated) {
+                      onNavigate('dashboard');
+                    } else {
+                      onOpenAuth('register');
+                    }
+                  }}
+                  className="py-3 px-6 bg-[#111111] hover:bg-[#333333] text-white text-xs font-semibold rounded flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+                >
+                  <span>Get Started</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
 
-              <button
-                onClick={() => {
-                  const element = document.getElementById('how-it-works');
-                  element?.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="py-3 px-6 bg-white hover:bg-[#F5F5F5] text-[#111111] text-xs font-semibold rounded border border-[#E5E5E5] flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
-              >
-                <span>Explore How It Works</span>
-              </button>
+                <button
+                  onClick={() => {
+                    document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="py-3 px-6 bg-white hover:bg-[#F7F7F7] text-[#111111] text-xs font-semibold rounded border border-[#E5E5E5] flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+                >
+                  <span>Explore Features</span>
+                </button>
+              </div>
+
+              {/* Trust Badges */}
+              <div className="pt-8 border-t border-[#E5E5E5] grid grid-cols-3 gap-6 text-xs text-[#777777]">
+                <div>
+                  <span className="block font-bold text-[#111111] text-sm">AES-256-GCM</span>
+                  <span>Authenticated AEAD</span>
+                </div>
+                <div>
+                  <span className="block font-bold text-[#111111] text-sm">PBKDF2-SHA256</span>
+                  <span>100,000 Iterations</span>
+                </div>
+                <div>
+                  <span className="block font-bold text-[#111111] text-sm">Zero Knowledge</span>
+                  <span>Client-Side Isolation</span>
+                </div>
+              </div>
             </div>
 
-            <div className="pt-8 border-t border-[#E5E5E5] grid grid-cols-2 sm:grid-cols-3 gap-6 text-xs text-[#666666]">
-              <div>
-                <span className="block font-bold text-[#111111] text-sm">AES-256-GCM</span>
-                <span>Authenticated encryption standard</span>
-              </div>
-              <div>
-                <span className="block font-bold text-[#111111] text-sm">Zero Knowledge</span>
-                <span>100% Client-side local execution</span>
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                <span className="block font-bold text-[#111111] text-sm">Verifiable CPT</span>
-                <span>Tamper-evident container format</span>
+            {/* Right Column: Sophisticated Cybersecurity Visual Illustration */}
+            <div className="lg:col-span-5">
+              <div className="relative border border-[#E5E5E5] rounded bg-[#F7F7F7] p-6 space-y-4 shadow-sm">
+                <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#111111]" />
+                    <span className="font-mono font-bold text-[#111111]">CRYPTORA_KERNEL_v1.0</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-[#16A34A] font-semibold">AUTHENTICATED</span>
+                </div>
+
+                {/* Visual Pipeline Stack */}
+                <div className="space-y-2.5 font-mono text-[11px]">
+                  <div className="p-3 bg-white border border-[#E5E5E5] rounded flex items-center justify-between">
+                    <span className="text-[#777777]">01. Source Binary / Text</span>
+                    <span className="text-[#111111] font-semibold">Memory Allocated</span>
+                  </div>
+                  <div className="p-3 bg-white border border-[#E5E5E5] rounded flex items-center justify-between">
+                    <span className="text-[#777777]">02. CSPRNG Nonce Generator</span>
+                    <span className="text-[#111111] font-semibold">96-bit Unique</span>
+                  </div>
+                  <div className="p-3 bg-white border border-[#E5E5E5] rounded flex items-center justify-between">
+                    <span className="text-[#777777]">03. AES-256-GCM Cipher Engine</span>
+                    <span className="text-[#111111] font-semibold">Hardware Acceleration</span>
+                  </div>
+                  <div className="p-3 bg-white border border-[#E5E5E5] rounded flex items-center justify-between">
+                    <span className="text-[#777777]">04. 128-bit GMAC Authentication</span>
+                    <span className="text-[#16A34A] font-semibold">Tamper Proof</span>
+                  </div>
+                  <div className="p-3 bg-[#111111] text-white rounded flex items-center justify-between">
+                    <span className="text-white/80">05. CRYPTORA Package Container</span>
+                    <span className="font-bold text-white">.cpt Sealed</span>
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-[#777777] flex items-center justify-between pt-2">
+                  <span>Standard: FIPS PUB 197 / RFC 8018</span>
+                  <span>Zero Plaintext Transmission</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 2. HOW IT WORKS SECTION */}
-      <section id="how-it-works" className="py-20 md:py-28 border-b border-[#E5E5E5] bg-[#F5F5F5]">
+      {/* 2. WHY CRYPTORA? SECTION */}
+      <section className="py-20 md:py-24 border-b border-[#E5E5E5] bg-[#F7F7F7]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div>
-            <span className="text-xs font-bold tracking-widest text-[#666666] uppercase">
-              Workflow Architecture
+          <div className="max-w-2xl">
+            <span className="text-xs font-mono font-bold tracking-widest text-[#777777] uppercase block">
+              Core Principles
             </span>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#111111] mt-2">
-              How CRYPTORA Works
+              Why Choose Cryptora?
             </h2>
-            <p className="text-xs sm:text-sm text-[#666666] mt-1.5 max-w-xl">
-              A transparent, mathematically provable sequence engineered for total confidentiality.
+            <p className="text-xs sm:text-sm text-[#777777] mt-2 leading-relaxed">
+              Designed from the ground up to solve modern cloud privacy dilemmas without sacrificing user ergonomics.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Step 1 */}
-            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-4">
-              <span className="text-xs font-mono font-bold text-[#666666]">
-                01. Upload Your Image
-              </span>
-              <h3 className="text-base font-bold text-[#111111]">
-                Signature Validation
-              </h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Upload your PNG, JPEG, WEBP, GIF, SVG, BMP, or TIFF file. CRYPTORA inspects raw magic byte signatures and processes the image locally in browser memory.
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2.5">
+              <span className="text-xs font-mono font-bold text-[#111111]">01. Protect Sensitive Information</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Ensure personal photography, identification, proprietary documents, and credentials remain entirely private even if storage infrastructure is breached.
               </p>
-              <ul className="text-xs text-[#666666] space-y-1 pt-2 border-t border-[#E5E5E5]">
-                <li>· Up to 50MB files supported</li>
-                <li>· Aspect-ratio preserving preview</li>
-                <li>· Zero server transmission</li>
-              </ul>
             </div>
 
-            {/* Step 2 */}
-            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-4">
-              <span className="text-xs font-mono font-bold text-[#666666]">
-                02. Encrypt Your Image
-              </span>
-              <h3 className="text-base font-bold text-[#111111]">
-                AES-256-GCM Encryption
-              </h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Provide a passphrase to derive a 256-bit key via PBKDF2-SHA256 (100,000 iterations), or generate a random 256-bit master key with unique 96-bit nonces.
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2.5">
+              <span className="text-xs font-mono font-bold text-[#111111]">02. Encrypt & Decrypt Text</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Seamlessly encrypt passwords, API keys, and secret messages into compact, portable JSON envelopes authenticated against unauthorized alteration.
               </p>
-              <ul className="text-xs text-[#666666] space-y-1 pt-2 border-t border-[#E5E5E5]">
-                <li>· 128-bit authentication tag</li>
-                <li>· Nonce reuse prevention</li>
-                <li>· Unique 16-byte random salt</li>
-              </ul>
             </div>
 
-            {/* Step 3 */}
-            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-4">
-              <span className="text-xs font-mono font-bold text-[#666666]">
-                03. Download Protected File
-              </span>
-              <h3 className="text-base font-bold text-[#111111]">
-                CPT Container Delivery
-              </h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Receive your self-contained <code className="font-mono text-[#111111]">.cpt</code> package containing version headers, salt, IV, authenticated metadata, and ciphertext.
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2.5">
+              <span className="text-xs font-mono font-bold text-[#111111]">03. Secure File Operations</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Universal binary file encryption supporting photos, documents, archives, and spreadsheets up to 100MB with embedded checksum verification.
               </p>
-              <ul className="text-xs text-[#666666] space-y-1 pt-2 border-t border-[#E5E5E5]">
-                <li>· Exportable .cpt binary file</li>
-                <li>· Backup master key file (.cptkey)</li>
-                <li>· Embedded SHA-256 integrity hash</li>
-              </ul>
             </div>
-          </div>
 
-          {/* Decryption Explanation Strip */}
-          <div className="bg-white border border-[#E5E5E5] rounded p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-1.5 max-w-2xl">
-              <h3 className="text-sm font-bold text-[#111111]">
-                Decryption & Bit-Level Restoration Workflow
-              </h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                To restore an encrypted file, upload the <code className="font-mono text-[#111111]">.cpt</code> container and enter the password or key. CRYPTORA verifies the 128-bit GCM authentication tag before releasing the plaintext. Any tampered byte immediately halts decryption, guaranteeing complete file integrity.
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2.5">
+              <span className="text-xs font-mono font-bold text-[#111111]">04. Explore Cryptographic Algorithms</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Inspect formal specifications of symmetric ciphers, public-key cryptography, hashes, and memory-hard KDF algorithms in a dedicated knowledge base.
               </p>
             </div>
-            <button
-              onClick={() => onNavigate('decrypt')}
-              className="px-5 py-2.5 bg-[#111111] hover:bg-[#1C1C1C] text-white text-xs font-semibold rounded shrink-0 transition-colors"
-            >
-              Start Decryption
-            </button>
+
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2.5">
+              <span className="text-xs font-mono font-bold text-[#111111]">05. Manage Encryption Activity</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Track authentic session operations, audit statuses, and export audit trails in CSV and JSON formats without saving private keys or sensitive payloads.
+              </p>
+            </div>
+
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2.5">
+              <span className="text-xs font-mono font-bold text-[#111111]">06. Learn Digital Security</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Execute live in-browser security assertions proving how single-bit tampering is caught by 128-bit authentication tags in Galois/Counter Mode.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* 3. CORE FEATURES SECTION */}
-      <section className="py-20 md:py-28 border-b border-[#E5E5E5] bg-white">
+      {/* 3. FEATURES SECTION (10 Feature Cards with working CTAs) */}
+      <section id="features" className="py-20 md:py-28 border-b border-[#E5E5E5] bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div>
-            <span className="text-xs font-bold tracking-widest text-[#666666] uppercase">
-              Core Capabilities
+          <div className="max-w-2xl">
+            <span className="text-xs font-mono font-bold tracking-widest text-[#777777] uppercase block">
+              Comprehensive Suite
             </span>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#111111] mt-2">
-              Enterprise Image Protection Features
+              Explore CRYPTORA Security Features
             </h2>
-            <p className="text-xs sm:text-sm text-[#666666] mt-1.5 max-w-xl">
-              Only genuine, tested cryptographic capabilities engineered without bloat.
+            <p className="text-xs sm:text-sm text-[#777777] mt-2 leading-relaxed">
+              Every tool is fully implemented with real hardware-accelerated WebCrypto primitives.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="border border-[#E5E5E5] rounded p-6 space-y-3">
-              <div className="w-8 h-8 rounded bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center text-[#111111]">
-                <Lock className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#111111]">Image Encryption</h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Transforms high-resolution image data into unreadable ciphertext utilizing authenticated AES-256-GCM.
-              </p>
-            </div>
+            {featureCards.map((feat) => {
+              const Icon = feat.icon;
+              return (
+                <div
+                  key={feat.id}
+                  className="border border-[#E5E5E5] rounded bg-white p-6 space-y-4 hover:border-[#111111] transition-colors flex flex-col justify-between group"
+                >
+                  <div className="space-y-3">
+                    <div className="w-10 h-10 rounded bg-[#F7F7F7] border border-[#E5E5E5] flex items-center justify-center text-[#111111] group-hover:bg-[#111111] group-hover:text-white transition-colors">
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-bold text-[#111111]">
+                      {feat.title}
+                    </h3>
+                    <p className="text-xs text-[#777777] leading-relaxed">
+                      {feat.description}
+                    </p>
+                  </div>
 
-            <div className="border border-[#E5E5E5] rounded p-6 space-y-3">
-              <div className="w-8 h-8 rounded bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center text-[#111111]">
-                <Unlock className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#111111]">Image Decryption</h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Restores the exact original image upon verification of matching credentials, ensuring 100% pixel fidelity.
-              </p>
-            </div>
-
-            <div className="border border-[#E5E5E5] rounded p-6 space-y-3">
-              <div className="w-8 h-8 rounded bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center text-[#111111]">
-                <Cpu className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#111111]">Secure File Processing</h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Hardware-accelerated processing via the W3C Web Cryptography API. Zero network transmission of unencrypted images.
-              </p>
-            </div>
-
-            <div className="border border-[#E5E5E5] rounded p-6 space-y-3">
-              <div className="w-8 h-8 rounded bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center text-[#111111]">
-                <Download className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#111111]">Protected File Download</h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Instantly download self-contained .cpt packages with embedded cryptographic parameters and integrity hashes.
-              </p>
-            </div>
-
-            <div className="border border-[#E5E5E5] rounded p-6 space-y-3">
-              <div className="w-8 h-8 rounded bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center text-[#111111]">
-                <Shield className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#111111]">Privacy-Focused Workflow</h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Passwords and raw encryption keys are never written to disk, sent to analytics, or stored in remote databases.
-              </p>
-            </div>
-
-            <div className="border border-[#E5E5E5] rounded p-6 space-y-3">
-              <div className="w-8 h-8 rounded bg-[#F5F5F5] border border-[#E5E5E5] flex items-center justify-center text-[#111111]">
-                <FileCheck className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-[#111111]">Strict File Validation</h3>
-              <p className="text-xs text-[#666666] leading-relaxed">
-                Validates image magic numbers, MIME headers, file sizes, and container structural integrity before processing.
-              </p>
-            </div>
+                  <button
+                    onClick={feat.action}
+                    className="pt-3 border-t border-[#E5E5E5] text-xs font-semibold text-[#111111] hover:text-[#777777] flex items-center justify-between w-full transition-colors"
+                  >
+                    <span>{feat.actionLabel}</span>
+                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* 4. SECURITY & CRYPTOGRAPHY DEEP DIVE */}
-      <section className="py-20 md:py-28 border-b border-[#E5E5E5] bg-[#F5F5F5]">
+      {/* 4. HOW IT WORKS (6-Step Workflow) */}
+      <section id="how-it-works" className="py-20 md:py-28 border-b border-[#E5E5E5] bg-[#F7F7F7]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div>
-            <span className="text-xs font-bold tracking-widest text-[#666666] uppercase">
-              Cryptographic Specification
+          <div className="max-w-2xl">
+            <span className="text-xs font-mono font-bold tracking-widest text-[#777777] uppercase block">
+              Operational Sequence
             </span>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#111111] mt-2">
-              Verified Technical Security Implementation
+              How Cryptora Works in 6 Steps
             </h2>
-            <p className="text-xs sm:text-sm text-[#666666] mt-1.5 max-w-xl">
-              Concrete cryptographic parameters conforming to NIST SP 800-38D and RFC 8018 standards.
+            <p className="text-xs sm:text-sm text-[#777777] mt-2 leading-relaxed">
+              A transparent, end-to-end authenticated workflow designed for maximum confidentiality.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            {/* Technical Specifications Matrix */}
-            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-4 text-xs font-mono">
-              <h3 className="font-sans font-bold text-sm text-[#111111]">
-                Cryptographic Parameters
-              </h3>
-
-              <div className="divide-y divide-[#E5E5E5]">
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Symmetric Cipher:</span>
-                  <span className="text-[#111111] font-bold">AES-256 (256-bit key)</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Cipher Mode:</span>
-                  <span className="text-[#111111] font-bold">Galois/Counter Mode (GCM)</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Authentication Tag:</span>
-                  <span className="text-[#111111] font-bold">128-bit GMAC</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Initialization Vector (IV):</span>
-                  <span className="text-[#111111] font-bold">96-bit (12 bytes, unique per run)</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Key Derivation (KDF):</span>
-                  <span className="text-[#111111] font-bold">PBKDF2 with HMAC-SHA-256</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">KDF Iteration Count:</span>
-                  <span className="text-[#111111] font-bold tabular-nums">100,000 iterations</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Salt Specification:</span>
-                  <span className="text-[#111111] font-bold">128-bit CSPRNG (16 bytes)</span>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <span className="text-[#666666] font-sans">Fidelity Checksum:</span>
-                  <span className="text-[#111111] font-bold">SHA-256 digest</span>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2">
+              <span className="text-xs font-mono font-bold text-[#111111]">Step 1: Create an Account</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Register using your email or Google Authentication to establish your personal, isolated workspace.
+              </p>
             </div>
 
-            {/* Interactive Live Cryptographic Sandbox */}
-            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-sm text-[#111111]">
-                  Live Cryptographic Sandbox
-                </h3>
-                <span className="text-[11px] text-[#666666]">
-                  Real In-Browser Execution
-                </span>
-              </div>
-              <p className="text-xs text-[#666666]">
-                Test the hardware AES-GCM engine live on sample data:
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2">
+              <span className="text-xs font-mono font-bold text-[#111111]">Step 2: Sign In Securely</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Access your dashboard via cryptographic session tokens protected by client PBKDF2 hashing.
               </p>
+            </div>
 
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="block text-[11px] font-semibold text-[#111111] mb-1">
-                    Sample Plaintext Payload:
-                  </label>
-                  <input
-                    type="text"
-                    value={sampleText}
-                    onChange={(e) => setSampleText(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-[#E5E5E5] rounded bg-[#F5F5F5] font-mono text-xs text-[#111111]"
-                  />
-                </div>
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2">
+              <span className="text-xs font-mono font-bold text-[#111111]">Step 3: Select Tool</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Choose Text Encryption, Text Decryption, File Encryption, File Decryption, or the Password Generator.
+              </p>
+            </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-[#111111] mb-1">
-                    Sample Passphrase:
-                  </label>
-                  <input
-                    type="text"
-                    value={samplePassword}
-                    onChange={(e) => setSamplePassword(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-[#E5E5E5] rounded bg-[#F5F5F5] font-mono text-xs text-[#111111]"
-                  />
-                </div>
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2">
+              <span className="text-xs font-mono font-bold text-[#111111]">Step 4: Configure Algorithm</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Specify AES-256-GCM, CBC, or Hash digest. Provide your password or generate a random 256-bit key.
+              </p>
+            </div>
 
-                <button
-                  type="button"
-                  disabled={isDemoEncrypting}
-                  onClick={handleRunDemoEncryption}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#1C1C1C] text-white text-xs font-semibold rounded transition-colors"
-                >
-                  {isDemoEncrypting ? 'Deriving & Encrypting...' : 'Execute AES-256-GCM'}
-                </button>
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2">
+              <span className="text-xs font-mono font-bold text-[#111111]">Step 5: Perform Operation</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Hardware-accelerated encryption or tag-verified decryption executes locally inside browser memory.
+              </p>
+            </div>
 
-                {demoCiphertext && (
-                  <div className="mt-3 p-3 bg-[#F5F5F5] border border-[#E5E5E5] rounded space-y-2 font-mono text-[11px]">
-                    <div>
-                      <span className="text-[#666666] block font-sans font-semibold">Ciphertext Output (Hex):</span>
-                      <span className="text-[#111111] break-all">{demoCiphertext}</span>
-                    </div>
-                    <div>
-                      <span className="text-[#666666] block font-sans font-semibold">128-bit Authentication Tag:</span>
-                      <span className="text-[#16A34A] break-all font-bold">{demoTag}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
+            <div className="bg-white border border-[#E5E5E5] rounded p-6 space-y-2">
+              <span className="text-xs font-mono font-bold text-[#111111]">Step 6: Download or Copy Result</span>
+              <p className="text-xs text-[#777777] leading-relaxed">
+                Download sealed .cpt containers or copy authenticated JSON packages. Plaintext is automatically purged.
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 5. FINAL CALL TO ACTION */}
+      {/* 5. SECURITY OVERVIEW SECTION */}
       <section className="py-20 md:py-28 bg-white">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 text-center">
+          <span className="text-xs font-mono font-bold tracking-widest text-[#777777] uppercase block">
+            Cryptographic Integrity
+          </span>
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-[#111111]">
-            Take Control of Your Image Security.
+            Your Data Deserves Strong Protection.
           </h2>
-          <p className="text-sm sm:text-base text-[#666666] max-w-xl mx-auto leading-relaxed">
-            Ensure private photos, sensitive medical scans, corporate diagrams, and digital credentials are completely protected with cryptographically verified AES-256-GCM.
+          <p className="text-sm sm:text-base text-[#777777] max-w-2xl mx-auto leading-relaxed">
+            CRYPTORA strictly rejects simulated encryption and proprietary non-standard algorithms.
+            Every operation is grounded in published standards from NIST and the IETF, executed client-side with full memory isolation.
           </p>
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
-              onClick={() => onNavigate('encrypt')}
-              className="w-full sm:w-auto py-3 px-8 bg-[#111111] hover:bg-[#1C1C1C] text-white text-xs font-semibold rounded flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+              onClick={() => {
+                if (isAuthenticated) {
+                  onNavigate('dashboard');
+                } else {
+                  onOpenAuth('register');
+                }
+              }}
+              className="w-full sm:w-auto py-3 px-8 bg-[#111111] hover:bg-[#333333] text-white text-xs font-semibold rounded flex items-center justify-center gap-2 transition-colors"
             >
-              <span>Get Started</span>
+              <span>Get Started with Cryptora</span>
               <ArrowRight className="w-4 h-4" />
             </button>
             <button
-              onClick={() => onNavigate('docs')}
-              className="w-full sm:w-auto py-3 px-6 bg-white hover:bg-[#F5F5F5] text-[#111111] text-xs font-semibold rounded border border-[#E5E5E5] transition-colors whitespace-nowrap"
+              onClick={() => onNavigate('security')}
+              className="w-full sm:w-auto py-3 px-6 bg-white hover:bg-[#F7F7F7] text-[#111111] text-xs font-semibold rounded border border-[#E5E5E5] transition-colors"
             >
-              Read Specification
+              Review Security Architecture
             </button>
           </div>
         </div>
