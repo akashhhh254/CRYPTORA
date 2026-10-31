@@ -138,7 +138,8 @@ For enterprise OAuth 2.0 / SAML single-sign-on integration with Google Cloud Ide
 3. Framework Preset: **Vite**.
 4. Build Command: `npm run build`.
 5. Output Directory: `dist`.
-6. Click **Deploy**. Single-page URL routing is pre-configured via HTML5 history and hash navigation.
+6. The repository includes `.npmrc` (`legacy-peer-deps=true`) to prevent peer dependency resolution errors during `npm install`, and `vercel.json` for SPA route rewriting.
+7. Click **Deploy**.
 
 ---
 
