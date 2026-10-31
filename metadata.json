@@ -1,0 +1,6 @@
+{
+  "name": "CRYPTORA - Digital Image Encryption & Decryption",
+  "description": "Privacy-focused digital image protection platform for secure AES-256-GCM encryption and authenticated decryption.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
