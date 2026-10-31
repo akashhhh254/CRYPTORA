@@ -142,7 +142,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       if (!isFirebaseConfigured) {
         throw new Error(
-          'Authentication service is initializing. Please verify environment configuration.'
+          'Firebase Authentication is not configured. Please ensure VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID environment variables are set in your deployment.'
         );
       }
 
@@ -315,6 +315,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Form Body */}
         <div className="p-6 space-y-4 overflow-y-auto max-h-[80vh] text-xs">
+          {!isFirebaseConfigured && (
+            <div className="p-3 bg-amber-50 border border-amber-200 text-xs text-[#92400E] rounded flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#B45309]" />
+              <div className="space-y-1">
+                <p className="font-semibold text-[#78350F]">Firebase Authentication Not Configured</p>
+                <p className="text-[11px] leading-relaxed text-[#92400E]">
+                  Please ensure <code className="font-mono text-[#78350F]">VITE_FIREBASE_API_KEY</code> and <code className="font-mono text-[#78350F]">VITE_FIREBASE_PROJECT_ID</code> environment variables are configured in your deployment settings.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Notifications */}
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 text-xs text-[#DC2626] rounded flex items-start gap-2">
