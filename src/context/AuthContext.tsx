@@ -9,6 +9,8 @@ import { User as FirebaseUser, onAuthStateChanged, updateProfile } from 'firebas
 import {
   auth,
   isFirebaseConfigured,
+  signInWithGoogleFirebase,
+  handleGoogleRedirectResult,
   registerWithEmailFirebase,
   loginWithEmailFirebase,
   resendVerificationEmail,
@@ -33,6 +35,7 @@ interface AuthContextType {
   unverifiedUser: FirebaseUser | null;
   authError: string | null;
   clearAuthError: () => void;
+  signInWithGoogle: (targetDestination?: string) => Promise<'redirect_initiated' | 'success'>;
   loginWithEmail: (email: string, pass: string) => Promise<{ isVerified: boolean }>;
   registerWithEmail: (name: string, email: string, pass: string) => Promise<{ emailVerificationSent: boolean }>;
   resendVerification: () => Promise<void>;
@@ -55,71 +58,160 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const clearAuthError = () => setAuthError(null);
 
-  // Unified Firebase Authentication Lifecycle (Email/Password verified sessions)
+  // Unified Firebase Authentication Lifecycle & Multi-Device Session Processor
   useEffect(() => {
     let mounted = true;
     let unsubAuth: (() => void) | undefined;
 
-    if (!isFirebaseConfigured || !auth) {
-      setLoading(false);
-      return;
-    }
-
-    // Subscribe to Firebase Auth State Changes
-    unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
-      if (!mounted) return;
-
-      if (fbUser) {
-        setFirebaseUser(fbUser);
-
-        // Strict Security Rule: Unverified email/password users are not granted protected sessions
-        if (!fbUser.emailVerified) {
-          setEmailVerificationPending(true);
-          setUnverifiedUser(fbUser);
-          setSession(null);
-          logoutUser();
-          setLoading(false);
-          return;
-        }
-
-        // Verified User
-        try {
-          const token = await fbUser.getIdToken();
-          const newSession: AuthSession = {
-            user: {
-              id: fbUser.uid,
-              email: fbUser.email || '',
-              name: fbUser.displayName || 'Cryptora User',
-              photoURL: fbUser.photoURL || undefined,
-              provider: 'Firebase Email',
-            },
-            token,
-            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-          };
-
-          setEmailVerificationPending(false);
-          setUnverifiedUser(null);
-          setSession(newSession);
-          saveSession(newSession);
-        } catch (e) {
-          console.warn('[CRYPTORA] Could not establish user session from auth state:', e);
-        }
-      } else {
-        setFirebaseUser(null);
-        setSession(null);
-        logoutUser();
-        setEmailVerificationPending(false);
-        setUnverifiedUser(null);
+    async function initializeAuth() {
+      if (!isFirebaseConfigured || !auth) {
+        if (mounted) setLoading(false);
+        return;
       }
 
-      setLoading(false);
-    });
+      // 1. Subscribe to Firebase Auth State Changes as primary source of truth
+      unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+        if (!mounted) return;
+
+        if (fbUser) {
+          setFirebaseUser(fbUser);
+          const isGoogle = fbUser.providerData.some((p) => p.providerId === 'google.com');
+
+          // Strict Security Rule: Unverified email/password users are not granted protected sessions
+          if (!fbUser.emailVerified && !isGoogle) {
+            setEmailVerificationPending(true);
+            setUnverifiedUser(fbUser);
+            setSession(null);
+            logoutUser();
+            setLoading(false);
+            return;
+          }
+
+          // Verified User (Google OAuth or Verified Email)
+          try {
+            const token = await fbUser.getIdToken();
+            const providerName = isGoogle ? 'Google' : 'Firebase Email';
+
+            const newSession: AuthSession = {
+              user: {
+                id: fbUser.uid,
+                email: fbUser.email || '',
+                name: fbUser.displayName || 'Cryptora User',
+                photoURL: fbUser.photoURL || undefined,
+                provider: providerName,
+              },
+              token,
+              expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+            };
+
+            setEmailVerificationPending(false);
+            setUnverifiedUser(null);
+            setSession(newSession);
+            saveSession(newSession);
+          } catch (e) {
+            console.warn('[CRYPTORA] Could not establish user session from auth state:', e);
+          }
+        } else {
+          // Prevent session clearing if we are in the middle of a redirect resolution
+          const isStillRedirecting =
+            typeof window !== 'undefined' &&
+            sessionStorage.getItem('cryptora_redirect_pending') === 'true';
+
+          if (!isStillRedirecting) {
+            setFirebaseUser(null);
+            setSession(null);
+            logoutUser();
+            setEmailVerificationPending(false);
+            setUnverifiedUser(null);
+          }
+        }
+
+        setLoading(false);
+      });
+
+      // 2. Process OAuth Redirect Result if returning from a mobile redirect
+      const isRedirectExpected =
+        typeof window !== 'undefined' &&
+        sessionStorage.getItem('cryptora_redirect_pending') === 'true';
+
+      if (isRedirectExpected) {
+        try {
+          const redirectedUser = await handleGoogleRedirectResult();
+          if (redirectedUser && mounted) {
+            const token = await redirectedUser.getIdToken();
+            const newSession: AuthSession = {
+              user: {
+                id: redirectedUser.uid,
+                email: redirectedUser.email || '',
+                name: redirectedUser.displayName || 'Cryptora User',
+                photoURL: redirectedUser.photoURL || undefined,
+                provider: 'Google',
+              },
+              token,
+              expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+            };
+
+            saveSession(newSession);
+            setSession(newSession);
+            setFirebaseUser(redirectedUser);
+            setEmailVerificationPending(false);
+            setUnverifiedUser(null);
+            setAuthError(null);
+
+            const destination = sessionStorage.getItem('cryptora_redirect_dest') || 'dashboard';
+            sessionStorage.removeItem('cryptora_redirect_pending');
+            sessionStorage.removeItem('cryptora_redirect_dest');
+            window.location.hash = `#/${destination}`;
+          } else {
+            sessionStorage.removeItem('cryptora_redirect_pending');
+            sessionStorage.removeItem('cryptora_redirect_dest');
+          }
+        } catch (redirectErr: any) {
+          console.warn('[CRYPTORA] Google redirect resolution error:', redirectErr);
+          sessionStorage.removeItem('cryptora_redirect_pending');
+          sessionStorage.removeItem('cryptora_redirect_dest');
+          if (mounted) {
+            setAuthError(redirectErr.message || 'Google Authentication failed. Please try again.');
+          }
+        }
+      }
+    }
+
+    initializeAuth();
 
     return () => {
       mounted = false;
       if (unsubAuth) unsubAuth();
     };
   }, []);
+
+  const signInWithGoogle = async (targetDestination: string = 'dashboard'): Promise<'redirect_initiated' | 'success'> => {
+    setAuthError(null);
+    const result = await signInWithGoogleFirebase(targetDestination);
+    if (result === 'redirect_initiated') {
+      return 'redirect_initiated';
+    }
+
+    const token = await result.getIdToken();
+    const newSession: AuthSession = {
+      user: {
+        id: result.uid,
+        email: result.email || '',
+        name: result.displayName || 'Google User',
+        photoURL: result.photoURL || undefined,
+        provider: 'Google',
+      },
+      token,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    };
+    setFirebaseUser(result);
+    setSession(newSession);
+    saveSession(newSession);
+    setEmailVerificationPending(false);
+    setUnverifiedUser(null);
+    setAuthError(null);
+    return 'success';
+  };
 
   const loginWithEmail = async (email: string, pass: string): Promise<{ isVerified: boolean }> => {
     setAuthError(null);
@@ -260,6 +352,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         unverifiedUser,
         authError,
         clearAuthError,
+        signInWithGoogle,
         loginWithEmail,
         registerWithEmail,
         resendVerification,

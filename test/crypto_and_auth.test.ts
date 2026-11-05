@@ -10,7 +10,13 @@ import {
   bytesToHex,
   hexToBytes,
 } from '../src/services/cryptoEngine';
-import { isFirebaseConfigured, firebaseConfig } from '../src/services/firebase';
+import {
+  isFirebaseConfigured,
+  firebaseConfig,
+  createGoogleProvider,
+  signInWithGoogleFirebase,
+  handleGoogleRedirectResult,
+} from '../src/services/firebase';
 
 async function runTests() {
   console.log('--- STARTING CRYPTORA AUTOMATED TEST SUITE ---');
@@ -139,6 +145,27 @@ async function runTests() {
     assert(tamperDetected, 'AES-256-GCM correctly detects tampering and rejects corrupted ciphertext');
   } catch (e) {
     assert(false, `Tamper detection test error: ${e}`);
+  }
+
+  // TEST 9: Google OAuth Provider Configuration
+  try {
+    const provider = createGoogleProvider();
+    const customParams = provider.getCustomParameters();
+    assert(customParams.prompt === 'select_account', 'Google Provider enforces prompt=select_account for genuine account selection');
+    const scopes = provider.getScopes();
+    const hasEmailScope = scopes.some((s) => s.includes('email'));
+    const hasProfileScope = scopes.some((s) => s.includes('profile'));
+    assert(hasEmailScope && hasProfileScope, 'Google Provider requests email and profile scopes for identity verification');
+  } catch (e) {
+    assert(false, `Google Provider test error: ${e}`);
+  }
+
+  // TEST 10: Google Auth Functions Availability
+  try {
+    assert(typeof signInWithGoogleFirebase === 'function', 'signInWithGoogleFirebase function is exported and callable');
+    assert(typeof handleGoogleRedirectResult === 'function', 'handleGoogleRedirectResult function is exported and callable');
+  } catch (e) {
+    assert(false, `Google Auth functions test error: ${e}`);
   }
 
   console.log('--------------------------------------------------');

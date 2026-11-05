@@ -175,6 +175,19 @@ export default function App() {
       {/* 3-Second Entrance Splash Screen on First Load */}
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
 
+      {/* Mobile OAuth Redirect Handshake Indicator */}
+      {loading && typeof window !== 'undefined' && sessionStorage.getItem('cryptora_redirect_pending') === 'true' && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
+          <div className="w-8 h-8 border-2 border-[#111111] border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="text-xs font-mono uppercase tracking-wider text-[#111111] font-bold">
+            Verifying Google Account...
+          </p>
+          <p className="text-[11px] text-[#777777] mt-1 font-mono">
+            Completing cryptographic session handshake
+          </p>
+        </div>
+      )}
+
 
       {/* Top Navigation Bar */}
       <Navbar
