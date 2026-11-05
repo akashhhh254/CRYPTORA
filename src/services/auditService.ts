@@ -36,21 +36,25 @@ export function logAuditEvent(item: Omit<AuditLogItem, 'id' | 'timestamp'>, user
 
   // Sync to Firestore if user is authenticated and db is available
   if (db && userId) {
-    const docPath = `users/${userId}/history/${newItem.id}`;
+    // Map strictly to firestore.rules allowed enum values
+    const opType = newItem.type === 'decrypt' ? 'Decrypt' : newItem.type === 'hash' ? 'Hash' : 'Encrypt';
+    const category = newItem.category === 'text' ? 'Text' : 'File';
+    const status = newItem.status === 'success' ? 'Success' : 'Error';
+
     setDoc(doc(db, 'users', userId, 'history', newItem.id), {
       operationId: newItem.id,
-      operationType: newItem.type,
-      category: newItem.category,
-      algorithm: newItem.algorithm,
-      fileName: newItem.fileName,
-      fileSize: newItem.fileSize,
-      mimeType: newItem.mimeType,
-      status: newItem.status,
+      operationType: opType,
+      category,
+      algorithm: (newItem.algorithm || 'AES-256-GCM').slice(0, 64),
+      fileName: (newItem.fileName || 'untitled').slice(0, 256),
+      fileSize: Number(newItem.fileSize) || 0,
+      mimeType: (newItem.mimeType || 'application/octet-stream').slice(0, 128),
+      status,
       createdAt: newItem.timestamp,
-      details: newItem.details || '',
+      details: (newItem.details || '').slice(0, 2048),
     }).catch((e) => {
-      console.warn('Could not write history to Firestore:', e);
-      handleFirestoreError(e, OperationType.WRITE, docPath);
+      // Non-blocking history sync notice
+      console.warn('[CRYPTORA] Audit history sync notice (non-fatal):', e);
     });
   }
 
@@ -63,10 +67,8 @@ export function deleteAuditLog(id: string, userId?: string): void {
   localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updated));
 
   if (db && userId) {
-    const docPath = `users/${userId}/history/${id}`;
     deleteDoc(doc(db, 'users', userId, 'history', id)).catch((e) => {
-      console.warn('Could not delete history from Firestore:', e);
-      handleFirestoreError(e, OperationType.DELETE, docPath);
+      console.warn('[CRYPTORA] Audit history delete notice (non-fatal):', e);
     });
   }
 }

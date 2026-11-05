@@ -102,53 +102,59 @@ function resolveConfigValue(...candidates: (unknown | undefined)[]): string {
   return '';
 }
 
+// Safe cross-runtime environment accessor (Vite import.meta.env or Node process.env)
+const env: Record<string, string | undefined> =
+  (typeof import.meta !== 'undefined' && (import.meta as any)?.env) ||
+  (typeof process !== 'undefined' && process.env) ||
+  {};
+
 // Cast rawAppletConfig safely to avoid strict object index issues
 const applet = (rawAppletConfig || {}) as Record<string, string | undefined>;
 
-// 1. Resolve Project ID (prioritize applet config if valid, with Vite env fallback)
+// 1. Resolve Project ID (prioritize applet config if valid, with env fallback)
 const projectId = resolveConfigValue(
   applet.projectId,
-  import.meta.env.VITE_FIREBASE_PROJECT_ID
+  env.VITE_FIREBASE_PROJECT_ID
 );
 
 // 2. Resolve API Key
 const apiKey = resolveConfigValue(
   applet.apiKey,
-  import.meta.env.VITE_FIREBASE_API_KEY
+  env.VITE_FIREBASE_API_KEY
 );
 
 // 3. Resolve Auth Domain (fallback to ${projectId}.firebaseapp.com if projectId is available)
 const authDomain = resolveConfigValue(
   applet.authDomain,
-  import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId ? `${projectId}.firebaseapp.com` : undefined
 );
 
 // 4. Resolve Storage Bucket (fallback to ${projectId}.firebasestorage.app)
 const storageBucket = resolveConfigValue(
   applet.storageBucket,
-  import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  env.VITE_FIREBASE_STORAGE_BUCKET,
   projectId ? `${projectId}.firebasestorage.app` : undefined
 );
 
 // 5. Resolve Messaging Sender ID
 const messagingSenderId = resolveConfigValue(
   applet.messagingSenderId,
-  import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID
+  env.VITE_FIREBASE_MESSAGING_SENDER_ID
 );
 
 // 6. Resolve App ID
 const appId = resolveConfigValue(
   applet.appId,
-  import.meta.env.VITE_FIREBASE_APP_ID
+  env.VITE_FIREBASE_APP_ID
 );
 
 // 7. Resolve Firestore Database ID with backward-compatible aliases:
 // Supports appletConfig.firestoreDatabaseId, VITE_FIREBASE_FIRESTORE_DATABASE_ID, and VITE_FIREBASE_FIRESTORE
 const rawDatabaseId = resolveConfigValue(
   applet.firestoreDatabaseId,
-  import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID,
-  import.meta.env.VITE_FIREBASE_FIRESTORE
+  env.VITE_FIREBASE_FIRESTORE_DATABASE_ID,
+  env.VITE_FIREBASE_FIRESTORE
 );
 // Normalize database ID: default database names are treated as empty for standard getFirestore(app)
 const firestoreDatabaseId =
@@ -379,7 +385,22 @@ export async function syncUserProfileToFirestore(
 }
 
 /**
- * Handle mobile Google redirect completion via getRedirectResult()
+ * Create a fresh, fully configured GoogleAuthProvider instance.
+ * Strictly applies prompt: 'select_account' to guarantee account selection
+ * and prevent sticky or silent auto-logins across multiple Google accounts.
+ */
+export function createGoogleProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({
+    prompt: 'select_account',
+  });
+  provider.addScope('email');
+  provider.addScope('profile');
+  return provider;
+}
+
+/**
+ * Handle Google redirect completion via getRedirectResult()
  */
 export async function handleGoogleRedirectResult(): Promise<FirebaseUser | null> {
   if (!auth || !isFirebaseConfigured) return null;
@@ -388,74 +409,67 @@ export async function handleGoogleRedirectResult(): Promise<FirebaseUser | null>
     if (result && result.user) {
       // Fire-and-forget background profile sync; never blocks redirect resolution
       syncUserProfileToFirestore(result.user, result.user.displayName || undefined, 'google.com').catch((e) => {
-        console.warn('Background profile sync notice on redirect:', e);
+        console.warn('[CRYPTORA] Background profile sync notice on redirect:', e);
       });
       return result.user;
     }
     return null;
   } catch (err: any) {
-    console.warn('Redirect authentication notice:', err);
+    console.warn('[CRYPTORA] Redirect authentication notice:', err);
     throw new Error(mapFirebaseAuthError(err));
   }
 }
 
 /**
  * Sign In with Google
- * Uses signInWithRedirect on mobile devices (Android/iOS) and signInWithPopup on desktop
- * with automatic fallback to redirect if popups are blocked.
+ * Multi-device and browser capability-based authentication strategy:
+ * - Attempts direct popup first on all modern devices (Desktop, Android, and iOS).
+ *   In modern mobile browsers (Safari/Chrome), user-initiated taps allow popups with
+ *   direct postMessage communication, avoiding cross-site WebKit ITP cookie loss.
+ * - Automatically falls back to signInWithRedirect if popups are blocked or unsupported.
+ * - Enforces prompt: 'select_account' so users can switch between multiple Google accounts.
  */
 export async function signInWithGoogleFirebase(
   targetDestination: string = 'dashboard'
 ): Promise<FirebaseUser | 'redirect_initiated'> {
-  if (!auth || !googleProvider || !isFirebaseConfigured) {
+  if (!auth || !isFirebaseConfigured) {
     throw new Error(
       'Firebase Authentication is not configured. Please ensure VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID environment variables are set in your deployment.'
     );
   }
 
-  // 1. Mobile devices: Use redirect to prevent popup blockers, blank tabs, and iframe issues on Android/iOS
-  if (isMobileDevice()) {
-    try {
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('cryptora_redirect_pending', 'true');
-        sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
-      }
-      await signInWithRedirect(auth, googleProvider);
-      return 'redirect_initiated';
-    } catch (err: any) {
-      if (typeof window !== 'undefined') {
-        sessionStorage.removeItem('cryptora_redirect_pending');
-        sessionStorage.removeItem('cryptora_redirect_dest');
-      }
-      throw new Error(mapFirebaseAuthError(err));
-    }
-  }
+  const provider = createGoogleProvider();
 
-  // 2. Desktop devices: Use popup with fallback to redirect if blocked
+  // Primary: Capability-based popup authentication
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await signInWithPopup(auth, provider);
     const user = result.user;
     if (user) {
-      // Non-blocking fire-and-forget sync
+      // Non-blocking fire-and-forget sync; never blocks authentication
       syncUserProfileToFirestore(user, user.displayName || undefined, 'google.com').catch((e) => {
-        console.warn('Background profile sync notice on popup:', e);
+        console.warn('[CRYPTORA] Background profile sync notice on popup:', e);
       });
     }
     return user;
   } catch (err: any) {
     const code = err.code || '';
-    if (
+    const message = err.message || '';
+
+    // If popup was blocked or unsupported, seamlessly fall back to redirect
+    const isPopupBlocked =
       code === 'auth/popup-blocked' ||
       code === 'auth/cancelled-popup-request' ||
-      err.message?.toLowerCase().includes('popup')
-    ) {
-      console.warn('Popup was blocked by browser, falling back to signInWithRedirect');
+      code === 'auth/operation-not-supported-in-this-environment' ||
+      message.toLowerCase().includes('popup');
+
+    if (isPopupBlocked) {
+      console.warn('[CRYPTORA] Popup blocked or unsupported in current environment, initiating signInWithRedirect fallback');
       try {
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('cryptora_redirect_pending', 'true');
           sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
         }
-        await signInWithRedirect(auth, googleProvider);
+        await signInWithRedirect(auth, provider);
         return 'redirect_initiated';
       } catch (redirectErr: any) {
         if (typeof window !== 'undefined') {
@@ -465,6 +479,12 @@ export async function signInWithGoogleFirebase(
         throw new Error(mapFirebaseAuthError(redirectErr));
       }
     }
+
+    // Explicit user closed popup
+    if (code === 'auth/popup-closed-by-user') {
+      throw new Error('Google Sign-In was closed before completing authentication. Please try again.');
+    }
+
     throw new Error(mapFirebaseAuthError(err));
   }
 }

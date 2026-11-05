@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const clearAuthError = () => setAuthError(null);
 
-  // Unified Firebase Authentication Lifecycle & Mobile Redirect Processor
+  // Unified Firebase Authentication Lifecycle & Multi-Device Session Processor
   useEffect(() => {
     let mounted = true;
     let unsubAuth: (() => void) | undefined;
@@ -69,56 +69,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
-      const isRedirectExpected =
-        typeof window !== 'undefined' &&
-        sessionStorage.getItem('cryptora_redirect_pending') === 'true';
-
-      // 1. Process Mobile Google OAuth Redirect Result first
-      try {
-        const redirectedUser = await handleGoogleRedirectResult();
-        if (redirectedUser && mounted) {
-          const token = await redirectedUser.getIdToken();
-          const newSession: AuthSession = {
-            user: {
-              id: redirectedUser.uid,
-              email: redirectedUser.email || '',
-              name: redirectedUser.displayName || 'Cryptora User',
-              photoURL: redirectedUser.photoURL || undefined,
-              provider: 'Google',
-            },
-            token,
-            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-          };
-
-          saveSession(newSession);
-          setSession(newSession);
-          setFirebaseUser(redirectedUser);
-          setEmailVerificationPending(false);
-          setUnverifiedUser(null);
-          setAuthError(null);
-
-          // Retrieve destination (default to 'dashboard')
-          const destination = sessionStorage.getItem('cryptora_redirect_dest') || 'dashboard';
-          sessionStorage.removeItem('cryptora_redirect_pending');
-          sessionStorage.removeItem('cryptora_redirect_dest');
-
-          // Direct hash route navigation to target workspace
-          window.location.hash = `#/${destination}`;
-        } else if (isRedirectExpected) {
-          // Redirect was expected but returned null (e.g. cancelled by user)
-          sessionStorage.removeItem('cryptora_redirect_pending');
-          sessionStorage.removeItem('cryptora_redirect_dest');
-        }
-      } catch (redirectErr: any) {
-        console.warn('Google redirect resolution error:', redirectErr);
-        sessionStorage.removeItem('cryptora_redirect_pending');
-        sessionStorage.removeItem('cryptora_redirect_dest');
-        if (mounted) {
-          setAuthError(redirectErr.message || 'Google Authentication failed. Please try again.');
-        }
-      }
-
-      // 2. Subscribe to Firebase Auth State Changes
+      // 1. Subscribe to Firebase Auth State Changes as primary source of truth
       unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
         if (!mounted) return;
 
@@ -158,7 +109,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setSession(newSession);
             saveSession(newSession);
           } catch (e) {
-            console.warn('Could not establish user session from auth state:', e);
+            console.warn('[CRYPTORA] Could not establish user session from auth state:', e);
           }
         } else {
           // Prevent session clearing if we are in the middle of a redirect resolution
@@ -177,6 +128,53 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         setLoading(false);
       });
+
+      // 2. Process OAuth Redirect Result if returning from a redirect
+      const isRedirectExpected =
+        typeof window !== 'undefined' &&
+        sessionStorage.getItem('cryptora_redirect_pending') === 'true';
+
+      if (isRedirectExpected) {
+        try {
+          const redirectedUser = await handleGoogleRedirectResult();
+          if (redirectedUser && mounted) {
+            const token = await redirectedUser.getIdToken();
+            const newSession: AuthSession = {
+              user: {
+                id: redirectedUser.uid,
+                email: redirectedUser.email || '',
+                name: redirectedUser.displayName || 'Cryptora User',
+                photoURL: redirectedUser.photoURL || undefined,
+                provider: 'Google',
+              },
+              token,
+              expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+            };
+
+            saveSession(newSession);
+            setSession(newSession);
+            setFirebaseUser(redirectedUser);
+            setEmailVerificationPending(false);
+            setUnverifiedUser(null);
+            setAuthError(null);
+
+            const destination = sessionStorage.getItem('cryptora_redirect_dest') || 'dashboard';
+            sessionStorage.removeItem('cryptora_redirect_pending');
+            sessionStorage.removeItem('cryptora_redirect_dest');
+            window.location.hash = `#/${destination}`;
+          } else {
+            sessionStorage.removeItem('cryptora_redirect_pending');
+            sessionStorage.removeItem('cryptora_redirect_dest');
+          }
+        } catch (redirectErr: any) {
+          console.warn('[CRYPTORA] Google redirect resolution error:', redirectErr);
+          sessionStorage.removeItem('cryptora_redirect_pending');
+          sessionStorage.removeItem('cryptora_redirect_dest');
+          if (mounted) {
+            setAuthError(redirectErr.message || 'Google Authentication failed. Please try again.');
+          }
+        }
+      }
     }
 
     initializeAuth();
