@@ -15,10 +15,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
@@ -180,7 +176,6 @@ export const isFirebaseConfigured = Boolean(
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
-let googleProvider: GoogleAuthProvider | null = null;
 
 if (isFirebaseConfigured) {
   try {
@@ -206,14 +201,6 @@ if (isFirebaseConfigured) {
     } else {
       db = getFirestore(app);
     }
-
-    // Configure Google OAuth Provider
-    googleProvider = new GoogleAuthProvider();
-    googleProvider.setCustomParameters({
-      prompt: 'select_account',
-    });
-    googleProvider.addScope('email');
-    googleProvider.addScope('profile');
   } catch (error) {
     console.warn('Firebase initialization notice:', error);
   }
@@ -250,7 +237,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-export { app, auth, db, googleProvider };
+export { app, auth, db };
 
 /**
  * Detect mobile devices to route between popup and redirect OAuth flows.
@@ -335,7 +322,7 @@ export function mapFirebaseAuthError(error: any): string {
 export async function syncUserProfileToFirestore(
   user: FirebaseUser,
   displayName?: string,
-  authProvider: string = 'google.com'
+  authProvider: string = 'password'
 ): Promise<void> {
   if (!db || !user || !user.uid) return;
   const path = `users/${user.uid}`;
@@ -351,7 +338,7 @@ export async function syncUserProfileToFirestore(
     const cleanDisplayName = (displayName || user.displayName || 'Cryptora User').slice(0, 100);
     const cleanEmail = (user.email || '').slice(0, 255);
     const cleanPhoto = (user.photoURL || '').slice(0, 1000);
-    const cleanProvider = (authProvider || 'google.com').slice(0, 64);
+    const cleanProvider = (authProvider || 'password').slice(0, 64);
 
     if (!existing || !existing.exists()) {
       await setDoc(userRef, {
@@ -381,111 +368,6 @@ export async function syncUserProfileToFirestore(
   } catch (e) {
     // Resilient fallback: profile sync is secondary and must never throw to caller
     console.warn(`[CRYPTORA] Firestore profile sync notice for ${path} (non-blocking):`, e);
-  }
-}
-
-/**
- * Create a fresh, fully configured GoogleAuthProvider instance.
- * Strictly applies prompt: 'select_account' to guarantee account selection
- * and prevent sticky or silent auto-logins across multiple Google accounts.
- */
-export function createGoogleProvider(): GoogleAuthProvider {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({
-    prompt: 'select_account',
-  });
-  provider.addScope('email');
-  provider.addScope('profile');
-  return provider;
-}
-
-/**
- * Handle Google redirect completion via getRedirectResult()
- */
-export async function handleGoogleRedirectResult(): Promise<FirebaseUser | null> {
-  if (!auth || !isFirebaseConfigured) return null;
-  try {
-    const result = await getRedirectResult(auth);
-    if (result && result.user) {
-      // Fire-and-forget background profile sync; never blocks redirect resolution
-      syncUserProfileToFirestore(result.user, result.user.displayName || undefined, 'google.com').catch((e) => {
-        console.warn('[CRYPTORA] Background profile sync notice on redirect:', e);
-      });
-      return result.user;
-    }
-    return null;
-  } catch (err: any) {
-    console.warn('[CRYPTORA] Redirect authentication notice:', err);
-    throw new Error(mapFirebaseAuthError(err));
-  }
-}
-
-/**
- * Sign In with Google
- * Multi-device and browser capability-based authentication strategy:
- * - Attempts direct popup first on all modern devices (Desktop, Android, and iOS).
- *   In modern mobile browsers (Safari/Chrome), user-initiated taps allow popups with
- *   direct postMessage communication, avoiding cross-site WebKit ITP cookie loss.
- * - Automatically falls back to signInWithRedirect if popups are blocked or unsupported.
- * - Enforces prompt: 'select_account' so users can switch between multiple Google accounts.
- */
-export async function signInWithGoogleFirebase(
-  targetDestination: string = 'dashboard'
-): Promise<FirebaseUser | 'redirect_initiated'> {
-  if (!auth || !isFirebaseConfigured) {
-    throw new Error(
-      'Firebase Authentication is not configured. Please ensure VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID environment variables are set in your deployment.'
-    );
-  }
-
-  const provider = createGoogleProvider();
-
-  // Primary: Capability-based popup authentication
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    if (user) {
-      // Non-blocking fire-and-forget sync; never blocks authentication
-      syncUserProfileToFirestore(user, user.displayName || undefined, 'google.com').catch((e) => {
-        console.warn('[CRYPTORA] Background profile sync notice on popup:', e);
-      });
-    }
-    return user;
-  } catch (err: any) {
-    const code = err.code || '';
-    const message = err.message || '';
-
-    // If popup was blocked or unsupported, seamlessly fall back to redirect
-    const isPopupBlocked =
-      code === 'auth/popup-blocked' ||
-      code === 'auth/cancelled-popup-request' ||
-      code === 'auth/operation-not-supported-in-this-environment' ||
-      message.toLowerCase().includes('popup');
-
-    if (isPopupBlocked) {
-      console.warn('[CRYPTORA] Popup blocked or unsupported in current environment, initiating signInWithRedirect fallback');
-      try {
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem('cryptora_redirect_pending', 'true');
-          sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
-        }
-        await signInWithRedirect(auth, provider);
-        return 'redirect_initiated';
-      } catch (redirectErr: any) {
-        if (typeof window !== 'undefined') {
-          sessionStorage.removeItem('cryptora_redirect_pending');
-          sessionStorage.removeItem('cryptora_redirect_dest');
-        }
-        throw new Error(mapFirebaseAuthError(redirectErr));
-      }
-    }
-
-    // Explicit user closed popup
-    if (code === 'auth/popup-closed-by-user') {
-      throw new Error('Google Sign-In was closed before completing authentication. Please try again.');
-    }
-
-    throw new Error(mapFirebaseAuthError(err));
   }
 }
 

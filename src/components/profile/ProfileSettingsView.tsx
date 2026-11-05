@@ -60,7 +60,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     );
   }
 
-  const isGoogleUser = session.user.provider === 'Google';
   const isEmailVerified = firebaseUser?.emailVerified ?? true;
 
   const handleUpdateName = async (e: React.FormEvent) => {
@@ -259,55 +258,35 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               Password & Authentication Security
             </h3>
 
-            {isGoogleUser ? (
-              <div className="p-4 bg-[#F7F7F7] border border-[#E5E5E5] rounded space-y-2 text-xs">
-                <span className="font-semibold text-[#111111] block">
-                  Managed by Google Account
-                </span>
-                <p className="text-[#777777] leading-relaxed">
-                  Your CRYPTORA workspace is secured via Google OAuth. To manage your password, 2-Factor Authentication, or security keys, visit your Google Account Security Dashboard.
-                </p>
-                <a
-                  href="https://myaccount.google.com/security"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#111111] underline pt-1"
-                >
-                  <span>Open Google Security Settings</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            ) : (
-              <div className="space-y-3 max-w-md text-xs">
-                <p className="text-xs text-[#777777]">
-                  Send a secure password reset link to your verified email address: <strong className="text-[#111111] font-mono">{session.user.email}</strong>.
-                </p>
+            <div className="space-y-3 max-w-md text-xs">
+              <p className="text-xs text-[#777777]">
+                Send a secure password reset link to your verified email address: <strong className="text-[#111111] font-mono">{session.user.email}</strong>.
+              </p>
 
-                {resetSent && (
-                  <div className="p-3 bg-green-50 border border-green-200 text-xs text-[#16A34A] rounded flex items-center gap-2">
-                    <Check className="w-4 h-4" />
-                    <span>Password reset email dispatched to your inbox.</span>
-                  </div>
-                )}
+              {resetSent && (
+                <div className="p-3 bg-green-50 border border-green-200 text-xs text-[#16A34A] rounded flex items-center gap-2">
+                  <Check className="w-4 h-4" />
+                  <span>Password reset email dispatched to your inbox.</span>
+                </div>
+              )}
 
-                {resetError && (
-                  <div className="p-3 bg-red-50 border border-red-200 text-xs text-[#DC2626] rounded flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    <span>{resetError}</span>
-                  </div>
-                )}
+              {resetError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-xs text-[#DC2626] rounded flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>{resetError}</span>
+                </div>
+              )}
 
-                <button
-                  type="button"
-                  disabled={resetLoading}
-                  onClick={handleSendPasswordReset}
-                  className="px-5 py-2.5 bg-[#111111] hover:bg-[#333333] text-white font-semibold rounded text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{resetLoading ? 'Dispatching Link...' : 'Send Password Reset Email'}</span>
-                </button>
-              </div>
-            )}
+              <button
+                type="button"
+                disabled={resetLoading}
+                onClick={handleSendPasswordReset}
+                className="px-5 py-2.5 bg-[#111111] hover:bg-[#333333] text-white font-semibold rounded text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{resetLoading ? 'Dispatching Link...' : 'Send Password Reset Email'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Zero-Knowledge Security Audit */}

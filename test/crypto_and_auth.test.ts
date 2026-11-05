@@ -10,7 +10,7 @@ import {
   bytesToHex,
   hexToBytes,
 } from '../src/services/cryptoEngine';
-import { createGoogleProvider, isFirebaseConfigured, firebaseConfig } from '../src/services/firebase';
+import { isFirebaseConfigured, firebaseConfig } from '../src/services/firebase';
 
 async function runTests() {
   console.log('--- STARTING CRYPTORA AUTOMATED TEST SUITE ---');
@@ -72,16 +72,13 @@ async function runTests() {
     assert(false, `Firebase configuration test error: ${e}`);
   }
 
-  // TEST 5: GoogleAuthProvider Custom Parameters
+  // TEST 5: Firebase Email Authentication Readiness
   try {
-    const provider = createGoogleProvider();
-    const customParams = provider.getCustomParameters();
-    assert(customParams.prompt === 'select_account', "Google provider enforces prompt: 'select_account'");
-    const scopes = provider.getScopes();
-    assert(scopes.includes('email'), "Google provider includes 'email' scope");
-    assert(scopes.includes('profile'), "Google provider includes 'profile' scope");
+    assert(Boolean(firebaseConfig.apiKey), 'Firebase API Key is configured');
+    assert(Boolean(firebaseConfig.projectId), 'Firebase Project ID is configured');
+    assert(firebaseConfig.projectId === 'ace-anvil-5lxdt', 'Target Firebase Project is ace-anvil-5lxdt');
   } catch (e) {
-    assert(false, `Google provider test error: ${e}`);
+    assert(false, `Firebase Auth readiness error: ${e}`);
   }
 
   // TEST 6: Web Crypto API Native Availability

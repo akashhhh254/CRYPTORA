@@ -175,14 +175,6 @@ export default function App() {
       {/* 3-Second Entrance Splash Screen on First Load */}
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
 
-      {/* Mobile Redirect Processing Overlay */}
-      {loading && typeof window !== 'undefined' && sessionStorage.getItem('cryptora_redirect_pending') === 'true' && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white p-4">
-          <div className="w-10 h-10 border-3 border-[#111111] border-t-transparent rounded-full animate-spin mb-4" />
-          <h2 className="text-sm font-bold text-[#111111]">Authenticating with Google</h2>
-          <p className="text-xs text-[#777777] mt-1 font-mono">Restoring verified secure session...</p>
-        </div>
-      )}
 
       {/* Top Navigation Bar */}
       <Navbar
