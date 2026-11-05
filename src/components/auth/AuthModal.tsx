@@ -132,6 +132,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       // If popup succeeds, the session observer triggers onSuccess automatically
     } catch (err: any) {
       setError(err.message || 'Google Sign-In failed.');
+    } finally {
       setGoogleLoading(false);
     }
   };

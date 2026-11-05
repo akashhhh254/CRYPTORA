@@ -244,21 +244,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-/**
- * Validate Firestore connection on startup.
- */
-async function testConnection() {
-  if (!db || !isFirebaseConfigured) return;
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore offline notice: please verify network or Firebase project access.');
-    }
-  }
-}
-testConnection();
-
 export { app, auth, db, googleProvider };
 
 /**
@@ -339,33 +324,37 @@ export function mapFirebaseAuthError(error: any): string {
 /**
  * Synchronize user profile into Firestore: users/{uid}
  * Strict Zero-Knowledge: Never stores passwords, encryption keys, tokens, or private plaintext.
+ * Decoupled: Non-blocking background task that never interrupts authentication.
  */
 export async function syncUserProfileToFirestore(
   user: FirebaseUser,
   displayName?: string,
   authProvider: string = 'google.com'
 ): Promise<void> {
-  if (!db || !user) return;
+  if (!db || !user || !user.uid) return;
   const path = `users/${user.uid}`;
   try {
     const userRef = doc(db, 'users', user.uid);
-    let existing;
+    let existing = null;
     try {
       existing = await getDoc(userRef);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.GET, path);
-      return;
+    } catch {
+      // Non-blocking read error
     }
     const now = Date.now();
+    const cleanDisplayName = (displayName || user.displayName || 'Cryptora User').slice(0, 100);
+    const cleanEmail = (user.email || '').slice(0, 255);
+    const cleanPhoto = (user.photoURL || '').slice(0, 1000);
+    const cleanProvider = (authProvider || 'google.com').slice(0, 64);
 
-    if (!existing.exists()) {
+    if (!existing || !existing.exists()) {
       await setDoc(userRef, {
         uid: user.uid,
-        displayName: displayName || user.displayName || 'Cryptora User',
-        email: user.email || '',
-        photoURL: user.photoURL || '',
+        displayName: cleanDisplayName,
+        email: cleanEmail,
+        photoURL: cleanPhoto,
         emailVerified: Boolean(user.emailVerified),
-        provider: authProvider,
+        provider: cleanProvider,
         createdAt: now,
         updatedAt: now,
       });
@@ -373,19 +362,19 @@ export async function syncUserProfileToFirestore(
       await setDoc(
         userRef,
         {
-          displayName: displayName || user.displayName || existing.data()?.displayName || 'Cryptora User',
-          email: user.email || existing.data()?.email || '',
-          photoURL: user.photoURL || existing.data()?.photoURL || '',
+          displayName: cleanDisplayName || existing.data()?.displayName || 'Cryptora User',
+          email: cleanEmail || existing.data()?.email || '',
+          photoURL: cleanPhoto || existing.data()?.photoURL || '',
           emailVerified: Boolean(user.emailVerified),
-          provider: authProvider,
+          provider: cleanProvider,
           updatedAt: now,
         },
         { merge: true }
       );
     }
   } catch (e) {
-    console.warn('Could not sync user profile to Firestore:', e);
-    handleFirestoreError(e, OperationType.WRITE, path);
+    // Resilient fallback: profile sync is secondary and must never throw to caller
+    console.warn(`[CRYPTORA] Firestore profile sync notice for ${path} (non-blocking):`, e);
   }
 }
 
@@ -397,7 +386,10 @@ export async function handleGoogleRedirectResult(): Promise<FirebaseUser | null>
   try {
     const result = await getRedirectResult(auth);
     if (result && result.user) {
-      await syncUserProfileToFirestore(result.user, result.user.displayName || undefined, 'google.com');
+      // Fire-and-forget background profile sync; never blocks redirect resolution
+      syncUserProfileToFirestore(result.user, result.user.displayName || undefined, 'google.com').catch((e) => {
+        console.warn('Background profile sync notice on redirect:', e);
+      });
       return result.user;
     }
     return null;
@@ -444,7 +436,10 @@ export async function signInWithGoogleFirebase(
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
     if (user) {
-      await syncUserProfileToFirestore(user, user.displayName || undefined, 'google.com');
+      // Non-blocking fire-and-forget sync
+      syncUserProfileToFirestore(user, user.displayName || undefined, 'google.com').catch((e) => {
+        console.warn('Background profile sync notice on popup:', e);
+      });
     }
     return user;
   } catch (err: any) {
