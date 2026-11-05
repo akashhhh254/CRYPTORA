@@ -369,6 +369,58 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </button>
                 </div>
               )}
+              {(error.includes('not authorized for OAuth') || error.includes('Authorized domains')) && (
+                <div className="pt-2 border-t border-red-200/80 space-y-2 text-[11px] text-[#991B1B]">
+                  <p className="font-semibold text-[#7F1D1D]">
+                    Domain verify karne ke liye ye 3 cheezein check karein:
+                  </p>
+                  <div className="bg-white p-2 rounded border border-red-200 font-mono text-[11px] break-all flex items-center justify-between gap-2">
+                    <span className="text-[#111111] select-all font-semibold">
+                      {typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-d44vudseligefyvhw7qpoe-940463740699.asia-east1.run.app'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+                        navigator.clipboard.writeText(host);
+                        alert('Domain copied: ' + host);
+                      }}
+                      className="px-2 py-0.5 bg-[#111111] text-white rounded text-[10px] shrink-0 font-sans cursor-pointer hover:bg-[#333333]"
+                    >
+                      Copy Domain
+                    </button>
+                  </div>
+                  <ul className="list-disc pl-4 space-y-1 text-[#7F1D1D] text-[11px]">
+                    <li>
+                      Domain me <strong>https://</strong> ya aakhiri slash <strong>/</strong> nahi hona chahiye. Sirf exact domain name paste karein.
+                    </li>
+                    <li>
+                      Firebase Console me Project ID: <strong className="text-[#111111]">ace-anvil-5lxdt</strong> hona chahiye.
+                    </li>
+                    <li>
+                      Google Identity edge servers ko domain update karne me <strong>1 se 2 minute</strong> lagte hain.
+                    </li>
+                  </ul>
+                  <div className="pt-1 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={googleLoading}
+                      onClick={handleGoogleSignIn}
+                      className="px-3 py-1 bg-[#111111] text-white rounded text-[11px] font-semibold hover:bg-[#333333] transition-colors cursor-pointer"
+                    >
+                      {googleLoading ? 'Connecting...' : 'Dobara Try Karein (Retry)'}
+                    </button>
+                    <a
+                      href="https://console.firebase.google.com/project/ace-anvil-5lxdt/authentication/settings"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-[#991B1B] hover:text-black font-semibold flex items-center gap-1"
+                    >
+                      Firebase Console Settings Kholein <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
