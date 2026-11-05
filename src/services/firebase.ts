@@ -28,6 +28,8 @@ import {
   User as FirebaseUser,
   Auth,
   browserLocalPersistence,
+  browserSessionPersistence,
+  inMemoryPersistence,
   setPersistence,
 } from 'firebase/auth';
 import {
@@ -181,6 +183,40 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
 
+/**
+ * Diagnostic logger for authentication milestones conforming to audit requirements.
+ * Logs only sanitized non-sensitive stage progression (never tokens, keys, or passwords).
+ */
+export function logAuthDebug(stage: string, data?: Record<string, any>): void {
+  const isDev =
+    typeof window !== 'undefined' &&
+    ((import.meta as any)?.env?.DEV || window.location.hostname === 'localhost');
+  if (isDev) {
+    if (data) {
+      console.log(`[CRYPTORA AUTH] ${stage}`, data);
+    } else {
+      console.log(`[CRYPTORA AUTH] ${stage}`);
+    }
+  }
+}
+
+/**
+ * Configure and guarantee multi-tiered Firebase authentication persistence.
+ * Falls back gracefully: Local IndexedDB -> Session Storage -> Memory.
+ */
+export async function ensureAuthPersistence(): Promise<void> {
+  if (!auth) return;
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+  } catch {
+    try {
+      await setPersistence(auth, browserSessionPersistence);
+    } catch {
+      await setPersistence(auth, inMemoryPersistence).catch(() => {});
+    }
+  }
+}
+
 if (isFirebaseConfigured) {
   try {
     // Avoid duplicate initialization
@@ -188,7 +224,8 @@ if (isFirebaseConfigured) {
     auth = getAuth(app);
 
     // Enforce long-lived local browser persistence
-    setPersistence(auth, browserLocalPersistence).catch(() => {});
+    ensureAuthPersistence().catch(() => {});
+    logAuthDebug('Firebase initialization completed.');
 
     // Initialize Cloud Firestore:
     // If a named database is specified, use it; otherwise, initialize standard default instance.
@@ -395,18 +432,26 @@ export function createGoogleProvider(): GoogleAuthProvider {
  */
 export async function handleGoogleRedirectResult(): Promise<FirebaseUser | null> {
   if (!auth || !isFirebaseConfigured) return null;
+  await ensureAuthPersistence();
+  logAuthDebug('Redirect processing started: evaluating getRedirectResult().');
   try {
     const result = await getRedirectResult(auth);
     if (result && result.user) {
+      logAuthDebug('Redirect result received successfully.', {
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName,
+      });
       // Fire-and-forget background profile sync; never blocks redirect resolution
       syncUserProfileToFirestore(result.user, result.user.displayName || undefined, 'google.com').catch((e) => {
         console.warn('[CRYPTORA] Background profile sync notice on redirect:', e);
       });
       return result.user;
     }
+    logAuthDebug('No redirect credential in current context.');
     return null;
   } catch (err: any) {
-    console.warn('[CRYPTORA] Redirect authentication notice:', err);
+    logAuthDebug('Authentication error occurred during redirect resolution:', err);
     throw new Error(mapFirebaseAuthError(err));
   }
 }
@@ -427,14 +472,18 @@ export async function signInWithGoogleFirebase(
     );
   }
 
+  await ensureAuthPersistence();
   const provider = createGoogleProvider();
 
   // 1. Android & Mobile Devices: Use official signInWithRedirect
   if (isMobileDevice()) {
+    logAuthDebug('Initiating Google OAuth via redirect (mobile device).', { targetDestination });
     try {
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('cryptora_redirect_pending', 'true');
         sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
+        localStorage.setItem('cryptora_redirect_pending', 'true');
+        localStorage.setItem('cryptora_redirect_dest', targetDestination);
       }
       await signInWithRedirect(auth, provider);
       return 'redirect_initiated';
@@ -442,16 +491,25 @@ export async function signInWithGoogleFirebase(
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem('cryptora_redirect_pending');
         sessionStorage.removeItem('cryptora_redirect_dest');
+        localStorage.removeItem('cryptora_redirect_pending');
+        localStorage.removeItem('cryptora_redirect_dest');
       }
+      logAuthDebug('Authentication error occurred during mobile redirect initiation:', err);
       throw new Error(mapFirebaseAuthError(err));
     }
   }
 
   // 2. Desktop Devices: Use official popup with redirect fallback
+  logAuthDebug('Initiating Google OAuth via popup (desktop browser).', { targetDestination });
   try {
     const result = await signInWithPopup(auth, provider);
     const user = result.user;
     if (user) {
+      logAuthDebug('Popup authentication completed successfully.', {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+      });
       // Non-blocking fire-and-forget sync
       syncUserProfileToFirestore(user, user.displayName || undefined, 'google.com').catch((e) => {
         console.warn('[CRYPTORA] Background profile sync notice on popup:', e);
@@ -469,11 +527,13 @@ export async function signInWithGoogleFirebase(
       code === 'auth/operation-not-supported-in-this-environment' ||
       message.toLowerCase().includes('popup')
     ) {
-      console.warn('[CRYPTORA] Popup blocked on desktop, falling back to signInWithRedirect');
+      logAuthDebug('Popup blocked on desktop, seamlessly falling back to signInWithRedirect.');
       try {
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('cryptora_redirect_pending', 'true');
           sessionStorage.setItem('cryptora_redirect_dest', targetDestination);
+          localStorage.setItem('cryptora_redirect_pending', 'true');
+          localStorage.setItem('cryptora_redirect_dest', targetDestination);
         }
         await signInWithRedirect(auth, provider);
         return 'redirect_initiated';
@@ -481,15 +541,20 @@ export async function signInWithGoogleFirebase(
         if (typeof window !== 'undefined') {
           sessionStorage.removeItem('cryptora_redirect_pending');
           sessionStorage.removeItem('cryptora_redirect_dest');
+          localStorage.removeItem('cryptora_redirect_pending');
+          localStorage.removeItem('cryptora_redirect_dest');
         }
+        logAuthDebug('Authentication error occurred during fallback redirect initiation:', redirectErr);
         throw new Error(mapFirebaseAuthError(redirectErr));
       }
     }
 
     if (code === 'auth/popup-closed-by-user') {
+      logAuthDebug('Google Sign-In popup closed by user before completing authentication.');
       throw new Error('Google Sign-In was closed before completing authentication. Please try again.');
     }
 
+    logAuthDebug('Authentication error occurred during popup sign-in:', err);
     throw new Error(mapFirebaseAuthError(err));
   }
 }

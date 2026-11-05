@@ -18,6 +18,7 @@ import {
   resetPasswordFirebase,
   signOutFirebase,
   syncUserProfileToFirestore,
+  logAuthDebug,
 } from '../services/firebase';
 import { AuthSession } from '../types/crypto';
 import {
@@ -69,11 +70,75 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
-      // 1. Subscribe to Firebase Auth State Changes as primary source of truth
+      logAuthDebug('Authentication initialization started.');
+
+      // 1. Process getRedirectResult FIRST on cold boot before concluding unauthenticated state
+      let redirectedUser: FirebaseUser | null = null;
+      try {
+        logAuthDebug('Redirect processing started.');
+        redirectedUser = await handleGoogleRedirectResult();
+      } catch (redirectErr: any) {
+        logAuthDebug('Authentication error occurred during redirect resolution:', redirectErr);
+        if (mounted) {
+          setAuthError(redirectErr.message || 'Google Authentication failed. Please try again.');
+        }
+      }
+
+      // Check stored target destination (from both localStorage and sessionStorage)
+      const destination =
+        (typeof window !== 'undefined' &&
+          (localStorage.getItem('cryptora_redirect_dest') ||
+            sessionStorage.getItem('cryptora_redirect_dest'))) ||
+        'dashboard';
+
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('cryptora_redirect_pending');
+        sessionStorage.removeItem('cryptora_redirect_dest');
+        localStorage.removeItem('cryptora_redirect_pending');
+        localStorage.removeItem('cryptora_redirect_dest');
+      }
+
+      // If redirect returned a valid user, immediately establish session and navigate to dashboard!
+      if (redirectedUser && mounted) {
+        logAuthDebug('Redirect result received.', { uid: redirectedUser.uid });
+        logAuthDebug(`Firebase UID received: ${redirectedUser.uid}`);
+        try {
+          const token = await redirectedUser.getIdToken();
+          const newSession: AuthSession = {
+            user: {
+              id: redirectedUser.uid,
+              email: redirectedUser.email || '',
+              name: redirectedUser.displayName || 'Cryptora User',
+              photoURL: redirectedUser.photoURL || undefined,
+              provider: 'Google',
+            },
+            token,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+          };
+
+          saveSession(newSession);
+          setSession(newSession);
+          setFirebaseUser(redirectedUser);
+          setEmailVerificationPending(false);
+          setUnverifiedUser(null);
+          setAuthError(null);
+          setLoading(false);
+          logAuthDebug('Authentication state updated (from redirect).');
+          logAuthDebug(`Dashboard navigation started: #${destination}`);
+          window.location.hash = `#/${destination}`;
+          return;
+        } catch (tokenErr) {
+          console.warn('[CRYPTORA] Failed to extract token from redirected user:', tokenErr);
+        }
+      }
+
+      // 2. Subscribe to Firebase Auth State Changes as persistent source of truth
       unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
         if (!mounted) return;
+        logAuthDebug('Authentication callback triggered.', { hasUser: Boolean(fbUser) });
 
         if (fbUser) {
+          logAuthDebug(`Firebase UID received: ${fbUser.uid}`);
           setFirebaseUser(fbUser);
           const isGoogle = fbUser.providerData.some((p) => p.providerId === 'google.com');
 
@@ -84,6 +149,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setSession(null);
             logoutUser();
             setLoading(false);
+            logAuthDebug('Email verification pending; session withheld.');
             return;
           }
 
@@ -108,73 +174,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setUnverifiedUser(null);
             setSession(newSession);
             saveSession(newSession);
+            logAuthDebug('Authentication state updated.');
           } catch (e) {
             console.warn('[CRYPTORA] Could not establish user session from auth state:', e);
           }
         } else {
-          // Prevent session clearing if we are in the middle of a redirect resolution
-          const isStillRedirecting =
-            typeof window !== 'undefined' &&
-            sessionStorage.getItem('cryptora_redirect_pending') === 'true';
-
-          if (!isStillRedirecting) {
-            setFirebaseUser(null);
-            setSession(null);
-            logoutUser();
-            setEmailVerificationPending(false);
-            setUnverifiedUser(null);
-          }
+          setFirebaseUser(null);
+          setSession(null);
+          logoutUser();
+          setEmailVerificationPending(false);
+          setUnverifiedUser(null);
+          logAuthDebug('Unauthenticated state confirmed.');
         }
 
         setLoading(false);
       });
-
-      // 2. Process OAuth Redirect Result if returning from a mobile redirect
-      const isRedirectExpected =
-        typeof window !== 'undefined' &&
-        sessionStorage.getItem('cryptora_redirect_pending') === 'true';
-
-      if (isRedirectExpected) {
-        try {
-          const redirectedUser = await handleGoogleRedirectResult();
-          if (redirectedUser && mounted) {
-            const token = await redirectedUser.getIdToken();
-            const newSession: AuthSession = {
-              user: {
-                id: redirectedUser.uid,
-                email: redirectedUser.email || '',
-                name: redirectedUser.displayName || 'Cryptora User',
-                photoURL: redirectedUser.photoURL || undefined,
-                provider: 'Google',
-              },
-              token,
-              expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-            };
-
-            saveSession(newSession);
-            setSession(newSession);
-            setFirebaseUser(redirectedUser);
-            setEmailVerificationPending(false);
-            setUnverifiedUser(null);
-            setAuthError(null);
-
-            const destination = sessionStorage.getItem('cryptora_redirect_dest') || 'dashboard';
-            sessionStorage.removeItem('cryptora_redirect_pending');
-            sessionStorage.removeItem('cryptora_redirect_dest');
-            window.location.hash = `#/${destination}`;
-          } else {
-            sessionStorage.removeItem('cryptora_redirect_pending');
-            sessionStorage.removeItem('cryptora_redirect_dest');
-          }
-        } catch (redirectErr: any) {
-          console.warn('[CRYPTORA] Google redirect resolution error:', redirectErr);
-          sessionStorage.removeItem('cryptora_redirect_pending');
-          sessionStorage.removeItem('cryptora_redirect_dest');
-          if (mounted) {
-            setAuthError(redirectErr.message || 'Google Authentication failed. Please try again.');
-          }
-        }
-      }
     }
 
     initializeAuth();
@@ -187,11 +201,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInWithGoogle = async (targetDestination: string = 'dashboard'): Promise<'redirect_initiated' | 'success'> => {
     setAuthError(null);
+    logAuthDebug('Google authentication requested by user.', { targetDestination });
     const result = await signInWithGoogleFirebase(targetDestination);
     if (result === 'redirect_initiated') {
+      logAuthDebug('Google OAuth redirect initiated.');
       return 'redirect_initiated';
     }
 
+    logAuthDebug('Google OAuth popup credential obtained.');
     const token = await result.getIdToken();
     const newSession: AuthSession = {
       user: {
@@ -204,12 +221,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       token,
       expiresAt: Date.now() + 24 * 60 * 60 * 1000,
     };
+    logAuthDebug(`Firebase UID received: ${result.uid}`);
     setFirebaseUser(result);
     setSession(newSession);
     saveSession(newSession);
     setEmailVerificationPending(false);
     setUnverifiedUser(null);
     setAuthError(null);
+    logAuthDebug('Authentication state updated (popup).');
+    logAuthDebug(`Dashboard navigation started: #${targetDestination}`);
+    window.location.hash = `#/${targetDestination}`;
     return 'success';
   };
 

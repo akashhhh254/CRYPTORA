@@ -22,15 +22,20 @@ import { AuthModal } from './components/auth/AuthModal';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { AuthSession } from './types/crypto';
 import { useAuth } from './context/AuthContext';
+import { logAuthDebug } from './services/firebase';
 
 export default function App() {
   const { session, logout, authError, clearAuthError, loading } = useAuth();
 
   const [showSplash, setShowSplash] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && sessionStorage.getItem('cryptora_redirect_pending') === 'true') {
-      return false;
+    if (typeof window !== 'undefined') {
+      const isRedirect =
+        sessionStorage.getItem('cryptora_redirect_pending') === 'true' ||
+        localStorage.getItem('cryptora_redirect_pending') === 'true';
+      if (isRedirect) return false;
+      return sessionStorage.getItem('cryptora_splash_shown') !== 'true';
     }
-    return sessionStorage.getItem('cryptora_splash_shown') !== 'true';
+    return false;
   });
 
   const [currentRoute, setCurrentRoute] = useState<string>('home');
@@ -87,18 +92,31 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Automatic dashboard navigation when session becomes active on landing or login routes
+  // Automatic dashboard navigation when session becomes active on landing, login, or public views
   useEffect(() => {
     if (session) {
       setAuthModalOpen(false);
-      const isPublicLanding = currentRoute === 'home' || currentRoute === 'login' || currentRoute === 'register';
-      if (isPublicLanding) {
+      const isPublicLanding =
+        currentRoute === 'home' ||
+        currentRoute === 'login' ||
+        currentRoute === 'register' ||
+        currentRoute === '404';
+
+      if (isPublicLanding || postAuthRedirect) {
         const dest = postAuthRedirect || 'dashboard';
+        logAuthDebug(`Auto-navigating authenticated session to #${dest}`);
         navigate(dest);
         setPostAuthRedirect(null);
       }
     }
-  }, [session]);
+  }, [session, currentRoute]);
+
+  // Log dashboard rendered milestone when dashboard is visible
+  useEffect(() => {
+    if (currentRoute === 'dashboard' && session) {
+      logAuthDebug('Dashboard successfully rendered.');
+    }
+  }, [currentRoute, session]);
 
   // If a mobile redirect authentication error occurs, open AuthModal with the error
   useEffect(() => {
@@ -175,15 +193,15 @@ export default function App() {
       {/* 3-Second Entrance Splash Screen on First Load */}
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
 
-      {/* Mobile OAuth Redirect Handshake Indicator */}
-      {loading && typeof window !== 'undefined' && sessionStorage.getItem('cryptora_redirect_pending') === 'true' && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
-          <div className="w-8 h-8 border-2 border-[#111111] border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-xs font-mono uppercase tracking-wider text-[#111111] font-bold">
-            Verifying Google Account...
+      {/* INITIALIZING Authentication State: Full-Screen Secure Handshake Indicator */}
+      {loading && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white" role="status" aria-live="polite">
+          <div className="w-10 h-10 border-2 border-[#111111] border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="text-xs font-mono uppercase tracking-widest text-[#111111] font-bold">
+            CRYPTORA SECURITY SHIELD
           </p>
           <p className="text-[11px] text-[#777777] mt-1 font-mono">
-            Completing cryptographic session handshake
+            Verifying cryptographic credentials & session handshake...
           </p>
         </div>
       )}

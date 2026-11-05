@@ -7,6 +7,7 @@
 import React from 'react';
 import { Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 import { AuthSession } from '../../types/crypto';
+import { useAuth } from '../../context/AuthContext';
 
 interface ProtectedRouteProps {
   session: AuthSession | null;
@@ -23,6 +24,19 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   onNavigateHome,
   children,
 }) => {
+  const { loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="max-w-md mx-auto py-24 px-4 text-center space-y-4">
+        <div className="w-8 h-8 border-2 border-[#111111] border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-xs font-mono uppercase tracking-wider text-[#777777]">
+          Verifying security clearance...
+        </p>
+      </div>
+    );
+  }
+
   if (session) {
     return <>{children}</>;
   }

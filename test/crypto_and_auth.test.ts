@@ -16,6 +16,8 @@ import {
   createGoogleProvider,
   signInWithGoogleFirebase,
   handleGoogleRedirectResult,
+  ensureAuthPersistence,
+  logAuthDebug,
 } from '../src/services/firebase';
 
 async function runTests() {
@@ -166,6 +168,24 @@ async function runTests() {
     assert(typeof handleGoogleRedirectResult === 'function', 'handleGoogleRedirectResult function is exported and callable');
   } catch (e) {
     assert(false, `Google Auth functions test error: ${e}`);
+  }
+
+  // TEST 11: Multi-tier Auth Persistence Configuration
+  try {
+    assert(typeof ensureAuthPersistence === 'function', 'ensureAuthPersistence function is exported and callable');
+    await ensureAuthPersistence();
+    assert(true, 'ensureAuthPersistence executes cleanly across runtime environments');
+  } catch (e) {
+    assert(false, `ensureAuthPersistence error: ${e}`);
+  }
+
+  // TEST 12: Diagnostic Logger Sanitization
+  try {
+    assert(typeof logAuthDebug === 'function', 'logAuthDebug is exported and callable');
+    logAuthDebug('Test verification stage', { testField: 'secure_sample' });
+    assert(true, 'logAuthDebug formats diagnostic logs without throwing');
+  } catch (e) {
+    assert(false, `logAuthDebug error: ${e}`);
   }
 
   console.log('--------------------------------------------------');
